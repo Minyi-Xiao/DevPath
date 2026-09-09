@@ -8,10 +8,26 @@ datasource db {
 }
 
 model Topic {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  description String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String         @id @default(cuid())
+  name          String
+  slug          String         @unique
+  description   String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  learningCards LearningCard[]
+}
+
+model LearningCard {
+  id            String   @id @default(cuid())
+  topicId       String
+  title         String
+  content       String
+  codeExample   String?
+  developerNote String?
+  order         Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, order])
 }

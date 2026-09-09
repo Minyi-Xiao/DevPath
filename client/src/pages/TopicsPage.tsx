@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useTopics } from '../hooks/useTopics';
 
 export function TopicsPage() {
@@ -15,9 +16,11 @@ export function TopicsPage() {
         {topics ? (
           <ul className="topic-grid">
             {topics.map((topic) => (
-              <li key={topic.id} className="topic-card">
-                <h2>{topic.name}</h2>
-                <p>{topic.description}</p>
+              <li key={topic.id}>
+                <Link to={`/topics/${topic.slug}`} className="topic-card">
+                  <h2>{topic.name}</h2>
+                  <p>{topic.description}</p>
+                </Link>
               </li>
             ))}
           </ul>
