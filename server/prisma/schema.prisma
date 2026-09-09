@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum QuestionType {
+  MULTIPLE_CHOICE
+  SHORT_ANSWER
+}
+
+enum QuestionDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
 model Topic {
   id            String         @id @default(cuid())
   name          String
@@ -15,6 +26,7 @@ model Topic {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   learningCards LearningCard[]
+  questions     Question[]
 }
 
 model LearningCard {
@@ -30,4 +42,39 @@ model LearningCard {
   topic         Topic    @relation(fields: [topicId], references: [id], onDelete: Cascade)
 
   @@unique([topicId, order])
+}
+
+model Question {
+  id          String             @id @default(cuid())
+  topicId     String
+  type        QuestionType
+  prompt      String
+  difficulty  QuestionDifficulty
+  explanation String
+  order       Int
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  topic       Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  options     QuestionOption[]
+  tags        Tag[]
+
+  @@unique([topicId, order])
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean
+  order      Int
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, order])
+}
+
+model Tag {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  slug      String     @unique
+  questions Question[]
 }
