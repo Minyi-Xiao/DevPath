@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, QuestionDifficulty, QuestionType } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -112,6 +112,299 @@ const learningCardsByTopicSlug: Record<
   ],
 };
 
+const tags = [
+  { name: 'HTTP Methods', slug: 'http-methods' },
+  { name: 'Status Codes', slug: 'status-codes' },
+  { name: 'Error Handling', slug: 'error-handling' },
+  { name: 'Resource Design', slug: 'resource-design' },
+  { name: 'SELECT Filtering', slug: 'select-filtering' },
+  { name: 'Aggregation', slug: 'aggregation' },
+  { name: 'Joins', slug: 'joins' },
+  { name: 'Grouping', slug: 'grouping' },
+  { name: 'Staging', slug: 'staging' },
+  { name: 'Commits', slug: 'commits' },
+  { name: 'Branches', slug: 'branches' },
+  { name: 'Merging', slug: 'merging' },
+] as const;
+
+type SeedOption = {
+  order: number;
+  text: string;
+  isCorrect: boolean;
+};
+
+type SeedQuestion = {
+  order: number;
+  type: QuestionType;
+  prompt: string;
+  difficulty: QuestionDifficulty;
+  explanation: string;
+  tagSlugs: Array<(typeof tags)[number]['slug']>;
+  options: SeedOption[];
+};
+
+const questionsByTopicSlug: Record<(typeof topics)[number]['slug'], SeedQuestion[]> = {
+  'rest-apis': [
+    {
+      order: 1,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'Which HTTP method should you use to read a resource without changing any server data?',
+      explanation:
+        'GET is a safe, read-only method. If calling an endpoint twice creates records or updates data, it should not be a GET.',
+      tagSlugs: ['http-methods'],
+      options: [
+        { order: 1, text: 'GET', isCorrect: true },
+        { order: 2, text: 'POST', isCorrect: false },
+        { order: 3, text: 'PUT', isCorrect: false },
+        { order: 4, text: 'DELETE', isCorrect: false },
+      ],
+    },
+    {
+      order: 2,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'A client POSTs a new topic and the server creates it successfully. Which status code is most appropriate?',
+      explanation:
+        '201 Created is the standard success status when a POST creates a new resource. 200 OK usually means a successful read or generic success, not a newly created record.',
+      tagSlugs: ['status-codes'],
+      options: [
+        { order: 1, text: '200 OK', isCorrect: false },
+        { order: 2, text: '201 Created', isCorrect: true },
+        { order: 3, text: '204 No Content', isCorrect: false },
+        { order: 4, text: '400 Bad Request', isCorrect: false },
+      ],
+    },
+    {
+      order: 3,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'A client requests GET /api/topics/python, but that topic does not exist. What should the API return?',
+      explanation:
+        'Return 404 Not Found when a specific resource does not exist. 400 is for an invalid request shape, and 500 means the server itself failed.',
+      tagSlugs: ['status-codes', 'error-handling'],
+      options: [
+        { order: 1, text: '400 Bad Request', isCorrect: false },
+        { order: 2, text: '204 No Content', isCorrect: false },
+        { order: 3, text: '404 Not Found', isCorrect: true },
+        { order: 4, text: '500 Internal Server Error', isCorrect: false },
+      ],
+    },
+    {
+      order: 4,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'Which URL best follows REST resource design for listing learning cards of the SQL topic?',
+      explanation:
+        'REST URLs should name resources, not actions. /api/topics/sql/cards uses nouns and nesting. Avoid action names such as getCards in the path or query string.',
+      tagSlugs: ['resource-design'],
+      options: [
+        { order: 1, text: 'GET /api/getCards?topic=sql', isCorrect: false },
+        { order: 2, text: 'GET /api/topics/sql/cards', isCorrect: true },
+        { order: 3, text: 'GET /api/topics/sql/getCards', isCorrect: false },
+        { order: 4, text: 'POST /api/topics/sql/cards/list', isCorrect: false },
+      ],
+    },
+    {
+      order: 5,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.ADVANCED,
+      prompt: 'A GET /api/topics endpoint creates a new analytics row on every call. What is the main design problem?',
+      explanation:
+        'GET must be safe: it should not change server data. Side effects such as inserting records belong on POST or another non-safe method.',
+      tagSlugs: ['http-methods', 'error-handling'],
+      options: [
+        { order: 1, text: 'GET cannot include path parameters.', isCorrect: false },
+        { order: 2, text: 'GET must always return 201 Created.', isCorrect: false },
+        { order: 3, text: 'GET must send a JSON request body.', isCorrect: false },
+        { order: 4, text: 'GET should not change server data.', isCorrect: true },
+      ],
+    },
+  ],
+  sql: [
+    {
+      order: 1,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'Which SQL clause filters individual rows before any grouping happens?',
+      explanation:
+        'WHERE filters rows first. GROUP BY then collapses the remaining rows, and HAVING filters groups after aggregation.',
+      tagSlugs: ['select-filtering'],
+      options: [
+        { order: 1, text: 'WHERE', isCorrect: true },
+        { order: 2, text: 'GROUP BY', isCorrect: false },
+        { order: 3, text: 'HAVING', isCorrect: false },
+        { order: 4, text: 'ORDER BY', isCorrect: false },
+      ],
+    },
+    {
+      order: 2,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'Which query counts how many learning cards belong to each topic?',
+      explanation:
+        'COUNT(*) is an aggregate. To get one count per topic you must GROUP BY the topic id, not select every card row on its own.',
+      tagSlugs: ['aggregation', 'grouping'],
+      options: [
+        {
+          order: 1,
+          text: 'SELECT "topicId", COUNT(*) AS card_count FROM "LearningCard" GROUP BY "topicId";',
+          isCorrect: true,
+        },
+        {
+          order: 2,
+          text: 'SELECT "topicId", COUNT(*) AS card_count FROM "LearningCard";',
+          isCorrect: false,
+        },
+        {
+          order: 3,
+          text: 'SELECT * FROM "LearningCard" WHERE COUNT(*) > 0;',
+          isCorrect: false,
+        },
+        {
+          order: 4,
+          text: 'SELECT COUNT("topicId") FROM "LearningCard" WHERE "topicId" GROUP BY COUNT(*);',
+          isCorrect: false,
+        },
+      ],
+    },
+    {
+      order: 3,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'What does an INNER JOIN return?',
+      explanation:
+        'INNER JOIN keeps only rows that match in both tables. Rows without a match are dropped. Use LEFT JOIN when you also need unmatched parent rows.',
+      tagSlugs: ['joins'],
+      options: [
+        { order: 1, text: 'Every row from both tables, matched or not.', isCorrect: false },
+        { order: 2, text: 'Only rows that match in both tables.', isCorrect: true },
+        { order: 3, text: 'Every row from the right table, even without a match.', isCorrect: false },
+        { order: 4, text: 'A cartesian product of every possible pair of rows.', isCorrect: false },
+      ],
+    },
+    {
+      order: 4,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'PostgreSQL errors that a selected column "must appear in the GROUP BY clause". What went wrong?',
+      explanation:
+        'Every selected column must either be in the GROUP BY list or be wrapped in an aggregate such as COUNT or SUM. A raw ungrouped column is invalid.',
+      tagSlugs: ['grouping'],
+      options: [
+        { order: 1, text: 'The query used WHERE instead of HAVING.', isCorrect: false },
+        { order: 2, text: 'The table name was quoted incorrectly.', isCorrect: false },
+        { order: 3, text: 'A selected column was neither grouped nor aggregated.', isCorrect: true },
+        { order: 4, text: 'GROUP BY can only be used with JOIN queries.', isCorrect: false },
+      ],
+    },
+    {
+      order: 5,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.ADVANCED,
+      prompt: 'You need every Topic row, including topics that currently have no learning cards. Which join should you use?',
+      explanation:
+        'LEFT JOIN from Topic to LearningCard keeps every topic. INNER JOIN would drop topics that have no matching cards.',
+      tagSlugs: ['joins'],
+      options: [
+        { order: 1, text: 'INNER JOIN from Topic to LearningCard', isCorrect: false },
+        { order: 2, text: 'LEFT JOIN from Topic to LearningCard', isCorrect: true },
+        { order: 3, text: 'CROSS JOIN from Topic to LearningCard', isCorrect: false },
+        { order: 4, text: 'RIGHT JOIN from LearningCard to Topic, then filter NULL topics', isCorrect: false },
+      ],
+    },
+  ],
+  git: [
+    {
+      order: 1,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'You edited a file but have not run git add yet. Where does that change live?',
+      explanation:
+        'Unstaged edits live in the working tree. git add copies a snapshot into the staging area; git commit then stores that snapshot in the repository.',
+      tagSlugs: ['staging'],
+      options: [
+        { order: 1, text: 'The working tree', isCorrect: true },
+        { order: 2, text: 'The staging area', isCorrect: false },
+        { order: 3, text: 'The repository history', isCorrect: false },
+        { order: 4, text: 'The remote default branch', isCorrect: false },
+      ],
+    },
+    {
+      order: 2,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.BEGINNER,
+      prompt: 'What does git add do?',
+      explanation:
+        'git add stages a snapshot of the chosen files for the next commit. It does not create a commit and it does not push to a remote.',
+      tagSlugs: ['staging'],
+      options: [
+        { order: 1, text: 'It creates a commit with a generated message.', isCorrect: false },
+        { order: 2, text: 'It copies the change into the staging area for the next commit.', isCorrect: true },
+        { order: 3, text: 'It pushes local commits to origin.', isCorrect: false },
+        { order: 4, text: 'It discards uncommitted changes in the working tree.', isCorrect: false },
+      ],
+    },
+    {
+      order: 3,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'Which statement best describes a Git commit?',
+      explanation:
+        'A commit is a snapshot of the staged files plus a message that explains why the change exists. It is not just a diff, and it is not a remote-only object.',
+      tagSlugs: ['commits'],
+      options: [
+        { order: 1, text: 'A snapshot of staged files plus a message explaining why the change exists.', isCorrect: true },
+        { order: 2, text: 'A mandatory backup stored only on the remote.', isCorrect: false },
+        { order: 3, text: 'A list of files that Git should ignore.', isCorrect: false },
+        { order: 4, text: 'A temporary stash that expires after 30 days.', isCorrect: false },
+      ],
+    },
+    {
+      order: 4,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.INTERMEDIATE,
+      prompt: 'What is a Git branch?',
+      explanation:
+        'A branch is a movable pointer to a commit. Creating a branch lets you do work without moving main until you merge.',
+      tagSlugs: ['branches'],
+      options: [
+        { order: 1, text: 'A copy of the entire .git directory on disk.', isCorrect: false },
+        { order: 2, text: 'A remote-only tag that cannot be updated.', isCorrect: false },
+        { order: 3, text: 'A movable pointer to a commit.', isCorrect: true },
+        { order: 4, text: 'A required folder named after each teammate.', isCorrect: false },
+      ],
+    },
+    {
+      order: 5,
+      type: QuestionType.MULTIPLE_CHOICE,
+      difficulty: QuestionDifficulty.ADVANCED,
+      prompt: 'Your feature branch is ready. What is the usual next step to land the work on main?',
+      explanation:
+        'Merge the feature branch into main (or open a pull request that does the same). Prefer resolving conflicts on the feature branch before completing the merge.',
+      tagSlugs: ['merging', 'branches'],
+      options: [
+        { order: 1, text: 'Delete main and rename the feature branch.', isCorrect: false },
+        { order: 2, text: 'Run git add . on main without committing.', isCorrect: false },
+        { order: 3, text: 'Reset main to the first commit on the feature branch.', isCorrect: false },
+        { order: 4, text: 'Merge the feature branch into main.', isCorrect: true },
+      ],
+    },
+  ],
+};
+
+function assertExactlyOneCorrectOption(question: SeedQuestion) {
+  if (question.type !== QuestionType.MULTIPLE_CHOICE) {
+    return;
+  }
+
+  const correctCount = question.options.filter((option) => option.isCorrect).length;
+
+  if (question.options.length !== 4 || correctCount !== 1) {
+    throw new Error(`MCQ "${question.prompt}" must have 4 options and exactly one correct answer.`);
+  }
+}
+
 async function seedTopicsAndCards() {
   for (const topic of topics) {
     const savedTopic = await prisma.topic.upsert({
@@ -150,9 +443,87 @@ async function seedTopicsAndCards() {
   }
 }
 
-seedTopicsAndCards()
+async function seedTags() {
+  for (const tag of tags) {
+    await prisma.tag.upsert({
+      where: { slug: tag.slug },
+      update: { name: tag.name },
+      create: tag,
+    });
+  }
+}
+
+async function seedQuestions() {
+  for (const topic of topics) {
+    const savedTopic = await prisma.topic.findUniqueOrThrow({
+      where: { slug: topic.slug },
+    });
+
+    for (const question of questionsByTopicSlug[topic.slug]) {
+      assertExactlyOneCorrectOption(question);
+
+      const savedQuestion = await prisma.question.upsert({
+        where: {
+          topicId_order: {
+            topicId: savedTopic.id,
+            order: question.order,
+          },
+        },
+        update: {
+          type: question.type,
+          prompt: question.prompt,
+          difficulty: question.difficulty,
+          explanation: question.explanation,
+          tags: {
+            set: question.tagSlugs.map((slug) => ({ slug })),
+          },
+        },
+        create: {
+          topicId: savedTopic.id,
+          type: question.type,
+          prompt: question.prompt,
+          difficulty: question.difficulty,
+          explanation: question.explanation,
+          order: question.order,
+          tags: {
+            connect: question.tagSlugs.map((slug) => ({ slug })),
+          },
+        },
+      });
+
+      for (const option of question.options) {
+        await prisma.questionOption.upsert({
+          where: {
+            questionId_order: {
+              questionId: savedQuestion.id,
+              order: option.order,
+            },
+          },
+          update: {
+            text: option.text,
+            isCorrect: option.isCorrect,
+          },
+          create: {
+            questionId: savedQuestion.id,
+            text: option.text,
+            isCorrect: option.isCorrect,
+            order: option.order,
+          },
+        });
+      }
+    }
+  }
+}
+
+async function seed() {
+  await seedTopicsAndCards();
+  await seedTags();
+  await seedQuestions();
+}
+
+seed()
   .then(async () => {
-    console.log('Seeded topics and learning cards: REST APIs, SQL, Git');
+    console.log('Seeded topics, learning cards, tags, and practice questions: REST APIs, SQL, Git');
     await prisma.$disconnect();
   })
   .catch(async (error) => {

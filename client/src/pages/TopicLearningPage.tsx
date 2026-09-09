@@ -27,16 +27,21 @@ export function TopicLearningPage() {
         {isPending ? <p className="state">Loading learning cards...</p> : null}
         {isError ? <p className="state state-error">{getTopicLearningCardsErrorMessage(error)}</p> : null}
 
-        {data && cards.length === 0 ? (
-          <>
+        {data ? (
+          <div className="learning-header">
             <h1>{data.topic.name}</h1>
-            <p className="state">No learning cards are available for this topic yet.</p>
-          </>
+            <Link to={`/topics/${data.topic.slug}/practice`} className="practice-start">
+              Start Practice
+            </Link>
+          </div>
+        ) : null}
+
+        {data && cards.length === 0 ? (
+          <p className="state">No learning cards are available for this topic yet.</p>
         ) : null}
 
         {data && currentCard ? (
           <>
-            <h1>{data.topic.name}</h1>
             <p className="learning-counter">
               {cardIndex + 1} / {cards.length}
             </p>
