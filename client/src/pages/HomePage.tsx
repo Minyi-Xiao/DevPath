@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useHealth } from '../hooks/useHealth';
 
 function getApiStatusLabel(isPending: boolean, isError: boolean): string {
@@ -23,6 +24,9 @@ export function HomePage() {
         <p className="tagline">AI-assisted developer training platform</p>
         <p className={`status ${isSuccess ? 'status-ok' : isError ? 'status-error' : ''}`}>
           API Status: {status}
+        </p>
+        <p className="hero-link">
+          <Link to="/topics">View developer topics</Link>
         </p>
       </section>
     </main>
