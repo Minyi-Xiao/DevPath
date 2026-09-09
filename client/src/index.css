@@ -57,3 +57,62 @@ body {
 .status-error {
   color: #b42318;
 }
+
+.hero-link {
+  margin: 20px 0 0;
+}
+
+.hero-link a {
+  color: #1a1f2b;
+  font-weight: 600;
+}
+
+.page-topics {
+  place-items: start center;
+}
+
+.topics {
+  width: min(920px, 100%);
+  padding: 40px 0;
+}
+
+.topics h1 {
+  margin: 0 0 8px;
+  font-size: 2.2rem;
+  letter-spacing: -0.04em;
+}
+
+.topic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topic-card {
+  padding: 24px;
+  background: #fffdf8;
+  border: 1px solid #e4ddd0;
+  border-radius: 16px;
+}
+
+.topic-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.topic-card p {
+  margin: 0;
+  color: #5c6370;
+}
+
+.state {
+  margin: 0 0 16px;
+  font-weight: 600;
+}
+
+.state-error {
+  color: #b42318;
+}
