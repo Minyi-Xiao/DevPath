@@ -27,6 +27,7 @@ export function AppNav() {
         <Link to="/topics">Topics</Link>
         {isPending ? null : user ? (
           <>
+            <Link to="/history">History</Link>
             <span className="app-nav-email">{user.email}</span>
             <button type="button" onClick={handleLogout} disabled={logoutMutation.isPending}>
               {logoutMutation.isPending ? 'Logging out...' : 'Logout'}

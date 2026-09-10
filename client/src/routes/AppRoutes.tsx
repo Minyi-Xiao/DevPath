@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom';
 import { AttemptResultPage } from '../pages/AttemptResultPage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
+import { PracticeHistoryPage } from '../pages/PracticeHistoryPage';
 import { PracticePage } from '../pages/PracticePage';
 import { RegisterPage } from '../pages/RegisterPage';
 import { TopicLearningPage } from '../pages/TopicLearningPage';
@@ -23,6 +24,14 @@ export function AppRoutes() {
           element={
             <ProtectedRoute>
               <PracticePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <PracticeHistoryPage />
             </ProtectedRoute>
           }
         />

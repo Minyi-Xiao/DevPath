@@ -1,3 +1,4 @@
+import { AttemptStatus } from '@prisma/client';
 import { HttpError } from '../lib/httpError';
 import { prisma } from '../lib/prisma';
 
@@ -16,6 +17,52 @@ function toPublicTopic(topic: {
     description: topic.description,
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
+  };
+}
+
+export async function listAttemptsForUser(userId: string) {
+  const attempts = await prisma.attempt.findMany({
+    where: {
+      userId,
+      status: AttemptStatus.COMPLETED,
+      completedAt: {
+        not: null,
+      },
+    },
+    orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+    select: {
+      id: true,
+      correctCount: true,
+      totalQuestions: true,
+      percentage: true,
+      completedAt: true,
+      topic: {
+        select: {
+          name: true,
+          slug: true,
+        },
+      },
+    },
+  });
+
+  return {
+    attempts: attempts.map((attempt) => {
+      if (!attempt.completedAt) {
+        throw new HttpError(500, 'Completed attempt is missing completedAt');
+      }
+
+      return {
+        id: attempt.id,
+        topic: {
+          name: attempt.topic.name,
+          slug: attempt.topic.slug,
+        },
+        correctCount: attempt.correctCount,
+        totalQuestions: attempt.totalQuestions,
+        percentage: attempt.percentage,
+        completedAt: attempt.completedAt,
+      };
+    }),
   };
 }
 
