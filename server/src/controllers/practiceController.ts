@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { HttpError } from '../lib/httpError';
-import { listPracticeQuestionsByTopicSlug, scorePracticeSubmission } from '../services/practiceService';
+import { listPracticeQuestionsByTopicSlug, submitPracticeAttempt } from '../services/practiceService';
 
 const topicSlugSchema = z
   .string()
@@ -16,6 +16,7 @@ const topicSlugParamsSchema = z.object({
 
 const submitPracticeBodySchema = z.object({
   topicSlug: topicSlugSchema,
+  submissionId: z.string().trim().min(8).max(80),
   answers: z
     .array(
       z.object({
@@ -51,7 +52,11 @@ export async function submitPractice(req: Request, res: Response, next: NextFunc
       throw new HttpError(400, 'Invalid practice submission');
     }
 
-    const payload = await scorePracticeSubmission(parsedBody.data.topicSlug, parsedBody.data.answers);
+    const payload = await submitPracticeAttempt(
+      parsedBody.data.topicSlug,
+      parsedBody.data.answers,
+      parsedBody.data.submissionId,
+    );
 
     res.json(payload);
   } catch (error) {

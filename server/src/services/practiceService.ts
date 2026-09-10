@@ -1,4 +1,4 @@
-import { QuestionType } from '@prisma/client';
+import { AttemptStatus, Prisma, QuestionType } from '@prisma/client';
 import { HttpError } from '../lib/httpError';
 import { prisma } from '../lib/prisma';
 
@@ -18,6 +18,10 @@ function toPublicTopic(topic: {
     createdAt: topic.createdAt,
     updatedAt: topic.updatedAt,
   };
+}
+
+function isUniqueConstraintError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 export async function listPracticeQuestionsByTopicSlug(topicSlug: string) {
@@ -77,7 +81,11 @@ type PracticeAnswer = {
   optionId: string;
 };
 
-export async function scorePracticeSubmission(topicSlug: string, answers: PracticeAnswer[]) {
+export async function submitPracticeAttempt(
+  topicSlug: string,
+  answers: PracticeAnswer[],
+  submissionId: string,
+) {
   const topic = await prisma.topic.findUnique({
     where: { slug: topicSlug },
     include: {
@@ -165,14 +173,99 @@ export async function scorePracticeSubmission(topicSlug: string, answers: Practi
 
   const total = questions.length;
   const percentage = Math.round((correctCount / total) * 100);
+  const completedAt = new Date();
+
+  try {
+    const attempt = await prisma.$transaction(async (tx) => {
+      const createdAttempt = await tx.attempt.create({
+        data: {
+          topicId: topic.id,
+          submissionId,
+          status: AttemptStatus.COMPLETED,
+          correctCount,
+          totalQuestions: total,
+          percentage,
+          startedAt: completedAt,
+          completedAt,
+        },
+      });
+
+      await tx.attemptAnswer.createMany({
+        data: results.map((result) => ({
+          attemptId: createdAttempt.id,
+          questionId: result.questionId,
+          selectedOptionId: result.selectedOptionId,
+          isCorrect: result.correct,
+        })),
+      });
+
+      return createdAttempt;
+    });
+
+    return {
+      attemptId: attempt.id,
+      topic: toPublicTopic(topic),
+      score: {
+        correct: correctCount,
+        total,
+        percentage,
+      },
+      results,
+    };
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error;
+    }
+
+    return getSavedPracticeSubmitPayload(submissionId);
+  }
+}
+
+async function getSavedPracticeSubmitPayload(submissionId: string) {
+  const attempt = await prisma.attempt.findUnique({
+    where: { submissionId },
+    include: {
+      topic: true,
+      answers: {
+        include: {
+          question: {
+            include: {
+              options: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) {
+    throw new HttpError(409, 'Duplicate practice submission');
+  }
+
+  const answers = [...attempt.answers].sort((left, right) => left.question.order - right.question.order);
 
   return {
-    topic: toPublicTopic(topic),
+    attemptId: attempt.id,
+    topic: toPublicTopic(attempt.topic),
     score: {
-      correct: correctCount,
-      total,
-      percentage,
+      correct: attempt.correctCount,
+      total: attempt.totalQuestions,
+      percentage: attempt.percentage,
     },
-    results,
+    results: answers.map((answer) => {
+      const correctOptions = answer.question.options.filter((option) => option.isCorrect);
+
+      if (correctOptions.length !== 1) {
+        throw new HttpError(500, 'Question is missing a valid correct option');
+      }
+
+      return {
+        questionId: answer.questionId,
+        correct: answer.isCorrect,
+        selectedOptionId: answer.selectedOptionId,
+        correctOptionId: correctOptions[0].id,
+        explanation: answer.question.explanation,
+      };
+    }),
   };
 }

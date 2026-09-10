@@ -5,7 +5,8 @@ export function useHealth() {
   return useQuery({
     queryKey: ['health'],
     queryFn: fetchHealth,
-    retry: false,
-    refetchOnWindowFocus: false,
+    retry: 2,
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => (query.state.status === 'error' ? 4000 : false),
   });
 }

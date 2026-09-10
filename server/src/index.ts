@@ -6,3 +6,4 @@ const app = createApp();
 app.listen(env.PORT, () => {
   console.log(`DevPath API listening on http://localhost:${env.PORT}`);
 });
+
