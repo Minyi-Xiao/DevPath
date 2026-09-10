@@ -2,7 +2,18 @@ import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { HttpError } from '../lib/httpError';
 import { getRequestUser } from '../middleware/requireAuth';
-import { getAttemptById } from '../services/attemptService';
+import { getAttemptById, listAttemptsForUser } from '../services/attemptService';
+
+export async function listAttempts(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = getRequestUser(req);
+    const payload = await listAttemptsForUser(user.id);
+
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+}
 
 const attemptIdParamsSchema = z.object({
   attemptId: z.string().trim().min(1).max(80),
