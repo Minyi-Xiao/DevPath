@@ -18,6 +18,11 @@ enum QuestionDifficulty {
   ADVANCED
 }
 
+enum AttemptStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
 model Topic {
   id            String         @id @default(cuid())
   name          String
@@ -27,6 +32,7 @@ model Topic {
   updatedAt     DateTime       @updatedAt
   learningCards LearningCard[]
   questions     Question[]
+  attempts      Attempt[]
 }
 
 model LearningCard {
@@ -45,29 +51,31 @@ model LearningCard {
 }
 
 model Question {
-  id          String             @id @default(cuid())
-  topicId     String
-  type        QuestionType
-  prompt      String
-  difficulty  QuestionDifficulty
-  explanation String
-  order       Int
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  topic       Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  options     QuestionOption[]
-  tags        Tag[]
+  id             String             @id @default(cuid())
+  topicId        String
+  type           QuestionType
+  prompt         String
+  difficulty     QuestionDifficulty
+  explanation    String
+  order          Int
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  topic          Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  options        QuestionOption[]
+  tags           Tag[]
+  attemptAnswers AttemptAnswer[]
 
   @@unique([topicId, order])
 }
 
 model QuestionOption {
-  id         String   @id @default(cuid())
-  questionId String
-  text       String
-  isCorrect  Boolean
-  order      Int
-  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  id              String          @id @default(cuid())
+  questionId      String
+  text            String
+  isCorrect       Boolean
+  order           Int
+  question        Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedAnswers AttemptAnswer[]
 
   @@unique([questionId, order])
 }
@@ -77,4 +85,38 @@ model Tag {
   name      String     @unique
   slug      String     @unique
   questions Question[]
+}
+
+model Attempt {
+  id             String         @id @default(cuid())
+  topicId        String
+  submissionId   String         @unique
+  status         AttemptStatus
+  correctCount   Int
+  totalQuestions Int
+  percentage     Int
+  startedAt      DateTime       @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  topic          Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  answers        AttemptAnswer[]
+
+  @@index([topicId])
+}
+
+model AttemptAnswer {
+  id               String         @id @default(cuid())
+  attemptId        String
+  questionId       String
+  selectedOptionId String
+  isCorrect        Boolean
+  createdAt        DateTime       @default(now())
+  attempt          Attempt        @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question         Question       @relation(fields: [questionId], references: [id])
+  selectedOption   QuestionOption @relation(fields: [selectedOptionId], references: [id])
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+  @@index([selectedOptionId])
 }

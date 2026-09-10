@@ -187,23 +187,36 @@ body {
   margin-top: 20px;
 }
 
-.learning-nav button {
+.learning-nav button,
+.learning-nav a {
   padding: 10px 16px;
   border: 1px solid #e4ddd0;
   border-radius: 10px;
   background: #fffdf8;
   color: #1a1f2b;
   font-weight: 600;
+  text-decoration: none;
   cursor: pointer;
 }
 
-.learning-nav button:hover:not(:disabled) {
+.learning-nav button:hover:not(:disabled),
+.learning-nav a:hover {
   border-color: #cfc6b4;
 }
 
 .learning-nav button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.learning-nav a.practice-submit {
+  border-color: #1a1f2b;
+  background: #1a1f2b;
+  color: #fffdf8;
+}
+
+.learning-nav a.practice-submit:hover {
+  background: #2b3242;
 }
 
 .learning-header {

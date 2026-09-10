@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getSubmitPracticeErrorMessage, getTopicPracticeErrorMessage } from '../api/practice';
 import { useSubmitPractice } from '../hooks/useSubmitPractice';
 import { useTopicPractice } from '../hooks/useTopicPractice';
-import type { PracticeQuestion, PracticeSubmitResponse } from '../types/practice';
 
 const difficultyLabels = {
   BEGINNER: 'Beginner',
@@ -11,24 +10,25 @@ const difficultyLabels = {
   ADVANCED: 'Advanced',
 } as const;
 
-function findOptionText(question: PracticeQuestion, optionId: string) {
-  return question.options.find((option) => option.id === optionId)?.text ?? 'Unknown option';
+function createSubmissionId() {
+  return crypto.randomUUID();
 }
 
 export function PracticePage() {
   const { topicSlug } = useParams<{ topicSlug: string }>();
+  const navigate = useNavigate();
   const { data, error, isPending, isError } = useTopicPractice(topicSlug);
   const submitMutation = useSubmitPractice();
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [incompleteError, setIncompleteError] = useState<string | null>(null);
-  const [result, setResult] = useState<PracticeSubmitResponse | null>(null);
+  const submissionIdRef = useRef(createSubmissionId());
 
   useEffect(() => {
     setQuestionIndex(0);
     setAnswers({});
     setIncompleteError(null);
-    setResult(null);
+    submissionIdRef.current = createSubmissionId();
     submitMutation.reset();
   }, [topicSlug]);
 
@@ -39,16 +39,16 @@ export function PracticePage() {
   const answeredCount = Object.keys(answers).length;
   const allAnswered = questions.length > 0 && answeredCount === questions.length;
 
-  const questionById = useMemo(() => {
-    return new Map(questions.map((question) => [question.id, question]));
-  }, [questions]);
-
   function selectOption(questionId: string, optionId: string) {
     setIncompleteError(null);
     setAnswers((current) => ({ ...current, [questionId]: optionId }));
   }
 
   function handleSubmit() {
+    if (submitMutation.isPending) {
+      return;
+    }
+
     if (!topicSlug || !allAnswered) {
       setIncompleteError('Answer every question before submitting.');
       return;
@@ -57,6 +57,7 @@ export function PracticePage() {
     submitMutation.mutate(
       {
         topicSlug,
+        submissionId: submissionIdRef.current,
         answers: questions.map((question) => {
           const optionId = answers[question.id];
 
@@ -73,18 +74,10 @@ export function PracticePage() {
       {
         onSuccess: (payload) => {
           setIncompleteError(null);
-          setResult(payload);
+          navigate(`/attempts/${payload.attemptId}`);
         },
       },
     );
-  }
-
-  function handlePracticeAgain() {
-    setQuestionIndex(0);
-    setAnswers({});
-    setIncompleteError(null);
-    setResult(null);
-    submitMutation.reset();
   }
 
   return (
@@ -104,16 +97,7 @@ export function PracticePage() {
           </>
         ) : null}
 
-        {data && result ? (
-          <PracticeResult
-            topicName={data.topic.name}
-            result={result}
-            questionById={questionById}
-            onPracticeAgain={handlePracticeAgain}
-          />
-        ) : null}
-
-        {data && currentQuestion && !result ? (
+        {data && currentQuestion ? (
           <>
             <h1>{data.topic.name}</h1>
             <p className="learning-counter">
@@ -192,62 +176,5 @@ export function PracticePage() {
         ) : null}
       </section>
     </main>
-  );
-}
-
-function PracticeResult({
-  topicName,
-  result,
-  questionById,
-  onPracticeAgain,
-}: {
-  topicName: string;
-  result: PracticeSubmitResponse;
-  questionById: Map<string, PracticeQuestion>;
-  onPracticeAgain: () => void;
-}) {
-  return (
-    <>
-      <h1>{topicName}</h1>
-      <section className="practice-score">
-        <p className="practice-score-value">
-          {result.score.correct} / {result.score.total}
-        </p>
-        <p className="practice-score-percentage">{result.score.percentage}%</p>
-      </section>
-
-      <ul className="practice-results">
-        {result.results.map((item, index) => {
-          const question = questionById.get(item.questionId);
-
-          return (
-            <li
-              key={item.questionId}
-              className={item.correct ? 'practice-result practice-result-correct' : 'practice-result practice-result-incorrect'}
-            >
-              <p className="practice-result-status">{item.correct ? 'Correct' : 'Incorrect'}</p>
-              <h2>
-                {index + 1}. {question?.prompt ?? 'Question'}
-              </h2>
-              <p>
-                <strong>Your answer: </strong>
-                {question ? findOptionText(question, item.selectedOptionId) : item.selectedOptionId}
-              </p>
-              <p>
-                <strong>Correct answer: </strong>
-                {question ? findOptionText(question, item.correctOptionId) : item.correctOptionId}
-              </p>
-              <p className="practice-explanation">{item.explanation}</p>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="learning-nav">
-        <button type="button" onClick={onPracticeAgain}>
-          Practice again
-        </button>
-      </div>
-    </>
   );
 }

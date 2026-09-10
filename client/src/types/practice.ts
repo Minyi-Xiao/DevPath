@@ -46,6 +46,7 @@ export const practiceQuestionResultSchema = z.object({
 
 export const practiceSubmitRequestSchema = z.object({
   topicSlug: z.string().min(1),
+  submissionId: z.string().min(8),
   answers: z.array(
     z.object({
       questionId: z.string().min(1),
@@ -55,6 +56,7 @@ export const practiceSubmitRequestSchema = z.object({
 });
 
 export const practiceSubmitResponseSchema = z.object({
+  attemptId: z.string().min(1),
   topic: topicSchema,
   score: practiceScoreSchema,
   results: z.array(practiceQuestionResultSchema),
