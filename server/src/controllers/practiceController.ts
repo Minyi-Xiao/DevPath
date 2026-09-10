@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { HttpError } from '../lib/httpError';
+import { getRequestUser } from '../middleware/requireAuth';
 import { listPracticeQuestionsByTopicSlug, submitPracticeAttempt } from '../services/practiceService';
 
 const topicSlugSchema = z
@@ -52,10 +53,12 @@ export async function submitPractice(req: Request, res: Response, next: NextFunc
       throw new HttpError(400, 'Invalid practice submission');
     }
 
+    const user = getRequestUser(req);
     const payload = await submitPracticeAttempt(
       parsedBody.data.topicSlug,
       parsedBody.data.answers,
       parsedBody.data.submissionId,
+      user.id,
     );
 
     res.json(payload);

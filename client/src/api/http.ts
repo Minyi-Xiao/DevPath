@@ -11,4 +11,5 @@ function getApiBaseUrl() {
 export const http = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 8000,
+  withCredentials: true,
 });

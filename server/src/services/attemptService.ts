@@ -19,9 +19,12 @@ function toPublicTopic(topic: {
   };
 }
 
-export async function getAttemptById(attemptId: string) {
-  const attempt = await prisma.attempt.findUnique({
-    where: { id: attemptId },
+export async function getAttemptById(attemptId: string, userId: string) {
+  const attempt = await prisma.attempt.findFirst({
+    where: {
+      id: attemptId,
+      userId,
+    },
     include: {
       topic: true,
       answers: {

@@ -23,6 +23,15 @@ enum AttemptStatus {
   COMPLETED
 }
 
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  attempts     Attempt[]
+}
+
 model Topic {
   id            String         @id @default(cuid())
   name          String
@@ -89,6 +98,7 @@ model Tag {
 
 model Attempt {
   id             String         @id @default(cuid())
+  userId         String
   topicId        String
   submissionId   String         @unique
   status         AttemptStatus
@@ -99,9 +109,11 @@ model Attempt {
   completedAt    DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   topic          Topic          @relation(fields: [topicId], references: [id], onDelete: Cascade)
   answers        AttemptAnswer[]
 
+  @@index([userId])
   @@index([topicId])
 }
 

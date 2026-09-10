@@ -85,6 +85,7 @@ export async function submitPracticeAttempt(
   topicSlug: string,
   answers: PracticeAnswer[],
   submissionId: string,
+  userId: string,
 ) {
   const topic = await prisma.topic.findUnique({
     where: { slug: topicSlug },
@@ -179,6 +180,7 @@ export async function submitPracticeAttempt(
     const attempt = await prisma.$transaction(async (tx) => {
       const createdAttempt = await tx.attempt.create({
         data: {
+          userId,
           topicId: topic.id,
           submissionId,
           status: AttemptStatus.COMPLETED,
@@ -217,11 +219,11 @@ export async function submitPracticeAttempt(
       throw error;
     }
 
-    return getSavedPracticeSubmitPayload(submissionId);
+    return getSavedPracticeSubmitPayload(submissionId, userId);
   }
 }
 
-async function getSavedPracticeSubmitPayload(submissionId: string) {
+async function getSavedPracticeSubmitPayload(submissionId: string, userId: string) {
   const attempt = await prisma.attempt.findUnique({
     where: { submissionId },
     include: {
@@ -238,7 +240,7 @@ async function getSavedPracticeSubmitPayload(submissionId: string) {
     },
   });
 
-  if (!attempt) {
+  if (!attempt || attempt.userId !== userId) {
     throw new HttpError(409, 'Duplicate practice submission');
   }
 
