@@ -28,6 +28,10 @@ export function getTopicPracticeErrorMessage(error: unknown): string {
 
 export function getSubmitPracticeErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    if (error.response?.status === 401) {
+      return 'Please log in to submit practice answers.';
+    }
+
     if (error.response?.status === 404) {
       return 'Topic not found.';
     }

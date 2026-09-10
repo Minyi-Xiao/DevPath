@@ -1,8 +1,10 @@
+import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express from 'express';
 import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import { attemptRoute } from './routes/attemptRoute';
+import { authRoute } from './routes/authRoute';
 import { healthRoute } from './routes/healthRoute';
 import { learningCardRoute } from './routes/learningCardRoute';
 import { practiceRoute } from './routes/practiceRoute';
@@ -33,10 +35,13 @@ export function createApp() {
       origin(origin, callback) {
         callback(null, isAllowedOrigin(origin));
       },
+      credentials: true,
     }),
   );
+  app.use(cookieParser());
   app.use(express.json());
   app.use('/api/health', healthRoute);
+  app.use('/api/auth', authRoute);
   app.use('/api/topics', topicRoute);
   app.use('/api/topics', learningCardRoute);
   app.use('/api', practiceRoute);

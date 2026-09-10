@@ -19,6 +19,100 @@ body {
   min-height: 100vh;
 }
 
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 24px;
+  background: #fffdf8;
+  border-bottom: 1px solid #e4ddd0;
+}
+
+.app-nav-brand {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.app-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+
+.app-nav-links a,
+.app-nav-links button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #1a1f2b;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-nav-links button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.app-nav-email {
+  color: #5c6370;
+  font-weight: 600;
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.auth-form input {
+  padding: 10px 12px;
+  border: 1px solid #e4ddd0;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.auth-form button {
+  padding: 10px 16px;
+  border: 1px solid #1a1f2b;
+  border-radius: 10px;
+  background: #1a1f2b;
+  color: #fffdf8;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-form button:hover:not(:disabled) {
+  background: #2b3242;
+}
+
+.auth-form button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.auth-hint {
+  margin: 0;
+  color: #5c6370;
+}
+
 .page {
   min-height: 100vh;
   display: grid;
