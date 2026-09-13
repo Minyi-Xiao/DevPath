@@ -84,10 +84,17 @@ export function PracticePage() {
     <main className="page page-topics">
       <section className="learning">
         <p className="learning-back">
-          <Link to={topicSlug ? `/topics/${topicSlug}` : '/topics'}>Back to topic</Link>
+          <Link to={topicSlug ? `/knowledge-base/topics/${topicSlug}` : '/knowledge-base'}>Back to topic</Link>
         </p>
 
-        {isPending ? <p className="state">Loading practice questions...</p> : null}
+        {isPending ? (
+          <div>
+            <p className="state">Preparing practice questions...</p>
+            <p className="upload-meta">
+              If this is your first practice, the AI is generating questions from your knowledge cards.
+            </p>
+          </div>
+        ) : null}
         {isError ? <p className="state state-error">{getTopicPracticeErrorMessage(error)}</p> : null}
 
         {data && questions.length === 0 ? (

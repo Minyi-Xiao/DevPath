@@ -1,0 +1,336 @@
+import type { QuestionDifficulty } from '@prisma/client';
+import { z } from 'zod';
+import {
+  AI_MAX_TOKENS,
+  AI_PRACTICE_SYSTEM_PROMPT,
+  AI_REQUEST_TIMEOUT_MS,
+  AI_TEMPERATURE,
+} from '../ai/aiConfig';
+import { getConfiguredAiProvider } from '../ai/createAiProvider';
+import { analysisTimeoutError, invalidAiOutputError, isAbortError, mapProviderError, providerErrorName } from '../ai/mapAiError';
+import { env } from '../config/env';
+import {
+  DOCUMENT_MAX_PRACTICE_QUESTIONS,
+  DOCUMENT_MIN_PRACTICE_QUESTIONS,
+  DocumentErrorCode,
+  documentErrorMessages,
+  questionRangeForCards,
+} from '../lib/documentLimits';
+import { HttpError } from '../lib/httpError';
+import type { DraftKnowledgeCard } from './knowledgeExtractionService';
+
+export type DraftPracticeOption = {
+  text: string;
+  isCorrect: boolean;
+};
+
+export type DraftPracticeQuestion = {
+  prompt: string;
+  difficulty: QuestionDifficulty;
+  explanation: string;
+  options: DraftPracticeOption[];
+};
+
+type PracticeQuestionGenerator = (input: {
+  topicName: string;
+  cards: DraftKnowledgeCard[];
+}) => Promise<DraftPracticeQuestion[]>;
+
+const optionSchema = z.object({
+  text: z.string().trim().min(1).max(400),
+  isCorrect: z.boolean(),
+});
+
+const draftQuestionSchema = z
+  .object({
+    prompt: z.string().trim().min(1).max(800),
+    difficulty: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']),
+    explanation: z.string().trim().min(1).max(1200),
+    options: z.array(optionSchema).length(4),
+  })
+  .refine((question) => question.options.filter((option) => option.isCorrect).length === 1);
+
+const generationSchema = z.object({
+  questions: z.array(draftQuestionSchema).min(1).max(12),
+});
+
+let generatorForTests: PracticeQuestionGenerator | null = null;
+
+export function setPracticeQuestionGeneratorForTests(generator: PracticeQuestionGenerator | null) {
+  generatorForTests = generator;
+}
+
+export async function generatePracticeQuestions(input: {
+  topicName: string;
+  cards: DraftKnowledgeCard[];
+}): Promise<DraftPracticeQuestion[]> {
+  if (generatorForTests) {
+    return normalizeQuestions(await generatorForTests(input), input.cards.length);
+  }
+
+  return generateWithConfiguredProvider(input);
+}
+
+async function generateWithConfiguredProvider(input: {
+  topicName: string;
+  cards: DraftKnowledgeCard[];
+}): Promise<DraftPracticeQuestion[]> {
+  const provider = getConfiguredAiProvider();
+  const range = questionRangeForCards(input.cards.length);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+  const startedAt = Date.now();
+
+  try {
+    const completion = await provider.complete({
+      systemPrompt: AI_PRACTICE_SYSTEM_PROMPT,
+      userPrompt: buildPrompt(input, range),
+      temperature: AI_TEMPERATURE,
+      maxTokens: AI_MAX_TOKENS,
+      abortSignal: controller.signal,
+    });
+
+    logAiCall({
+      provider: provider.name,
+      durationMs: Date.now() - startedAt,
+      ok: true,
+    });
+
+    return normalizeQuestions(parseGeneration(completion.text), input.cards.length);
+  } catch (error) {
+    logAiCall({
+      provider: provider.name,
+      durationMs: Date.now() - startedAt,
+      ok: false,
+      errorName: providerErrorName(error),
+    });
+
+    if (isAbortError(error)) {
+      throw analysisTimeoutError();
+    }
+
+    throw mapProviderError(error);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildPrompt(
+  input: { topicName: string; cards: DraftKnowledgeCard[] },
+  range: { min: number; max: number },
+) {
+  const cardLines = input.cards.map((card, index) => {
+    const parts = [`${index + 1}. ${card.title}`, card.content];
+
+    if (card.codeExample) {
+      parts.push(`Code: ${card.codeExample}`);
+    }
+
+    return parts.join('\n');
+  });
+
+  return [
+    `Topic: ${input.topicName}`,
+    `Return only a JSON object: {"questions":[...]}. No markdown, no extra keys.`,
+    `questions: ${range.min}-${range.max} multiple-choice items.`,
+    `Each question must have prompt, difficulty (BEGINNER|INTERMEDIATE|ADVANCED), explanation, and exactly 4 options.`,
+    `Each option is { text, isCorrect }. Exactly one option may be true.`,
+    `Keep prompt and option text short. Test the knowledge in these cards. Do not invent APIs or facts that are not in the cards.`,
+    `Ask about concepts a developer should recall, not trivia about page numbers.`,
+    '',
+    cardLines.join('\n\n'),
+  ].join('\n');
+}
+
+function parseGeneration(content: string): DraftPracticeQuestion[] {
+  const parsedJson = parseJsonValue(content);
+  const parsed = generationSchema.safeParse(normalizeGenerationPayload(parsedJson));
+
+  if (!parsed.success) {
+    console.error('[ai] practice parse failed', {
+      issues: parsed.error.issues.slice(0, 8).map((issue) => issue.message),
+      preview: content.slice(0, 240),
+    });
+    throw invalidAiOutputError();
+  }
+
+  return parsed.data.questions.map((question) => ({
+    prompt: question.prompt,
+    difficulty: question.difficulty,
+    explanation: question.explanation,
+    options: question.options.map((option) => ({
+      text: option.text,
+      isCorrect: option.isCorrect,
+    })),
+  }));
+}
+
+function parseJsonValue(content: string) {
+  for (const candidate of jsonCandidates(content)) {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch {
+      try {
+        return JSON.parse(candidate.replace(/,\s*([}\]])/g, '$1')) as unknown;
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  throw invalidAiOutputError();
+}
+
+function jsonCandidates(content: string) {
+  const trimmed = content.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1]?.trim();
+  const unfenced = (fenced ?? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '')).trim();
+  const candidates = [unfenced, trimmed];
+  const objectMatch = unfenced.match(/\{[\s\S]*\}/);
+  const arrayMatch = unfenced.match(/\[[\s\S]*\]/);
+
+  if (objectMatch) {
+    candidates.push(objectMatch[0]);
+  }
+
+  if (arrayMatch) {
+    candidates.push(arrayMatch[0]);
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function normalizeGenerationPayload(value: unknown) {
+  if (Array.isArray(value)) {
+    return { questions: value.map(coerceQuestion) };
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const questions = Array.isArray(record.questions)
+      ? record.questions
+      : Array.isArray(record.data)
+        ? record.data
+        : null;
+
+    if (questions) {
+      return { questions: questions.map(coerceQuestion) };
+    }
+  }
+
+  return value;
+}
+
+function coerceQuestion(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const question = value as Record<string, unknown>;
+  const options = Array.isArray(question.options) ? question.options.map(coerceOption) : question.options;
+
+  return {
+    prompt: question.prompt,
+    difficulty: coerceDifficulty(question.difficulty),
+    explanation: question.explanation ?? question.rationale ?? question.reason,
+    options,
+  };
+}
+
+function coerceOption(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const option = value as Record<string, unknown>;
+  const flag = option.isCorrect ?? option.correct ?? option.is_correct;
+
+  return {
+    text: option.text ?? option.label ?? option.option,
+    isCorrect: flag === true || flag === 'true' || flag === 1,
+  };
+}
+
+function coerceDifficulty(value: unknown) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+
+  if (normalized === 'BEGINNER' || normalized === 'INTERMEDIATE' || normalized === 'ADVANCED') {
+    return normalized;
+  }
+
+  if (normalized === 'EASY' || normalized === 'BASIC') {
+    return 'BEGINNER';
+  }
+
+  if (normalized === 'MEDIUM' || normalized === 'NORMAL') {
+    return 'INTERMEDIATE';
+  }
+
+  if (normalized === 'HARD' || normalized === 'EXPERT') {
+    return 'ADVANCED';
+  }
+
+  return normalized;
+}
+
+function normalizeQuestions(questions: DraftPracticeQuestion[], cardCount: number): DraftPracticeQuestion[] {
+  const unique = dedupeQuestions(questions).slice(0, DOCUMENT_MAX_PRACTICE_QUESTIONS);
+  const range = questionRangeForCards(cardCount);
+
+  if (unique.length < DOCUMENT_MIN_PRACTICE_QUESTIONS || unique.length < range.min) {
+    throw new HttpError(422, documentErrorMessages.TOO_FEW_QUESTIONS, DocumentErrorCode.TOO_FEW_QUESTIONS);
+  }
+
+  return unique.slice(0, range.max).map((question) => ({
+    ...question,
+    options: shuffleOptions(question.options),
+  }));
+}
+
+function dedupeQuestions(questions: DraftPracticeQuestion[]) {
+  const seen = new Set<string>();
+  const unique: DraftPracticeQuestion[] = [];
+
+  for (const question of questions) {
+    const key = question.prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(question);
+  }
+
+  return unique;
+}
+
+function shuffleOptions(options: DraftPracticeOption[]) {
+  const shuffled = [...options];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = shuffled[index];
+    const swap = shuffled[swapIndex];
+
+    if (!current || !swap) {
+      continue;
+    }
+
+    shuffled[index] = swap;
+    shuffled[swapIndex] = current;
+  }
+
+  return shuffled;
+}
+
+function logAiCall(details: { provider: string; durationMs: number; ok: boolean; errorName?: string }) {
+  console.info('[ai]', {
+    provider: details.provider,
+    modelId: env.OPENAI_MODEL,
+    task: 'practice-questions',
+    durationMs: details.durationMs,
+    ok: details.ok,
+    ...(details.errorName ? { errorName: details.errorName } : {}),
+  });
+}

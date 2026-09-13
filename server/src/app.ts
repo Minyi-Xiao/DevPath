@@ -5,10 +5,10 @@ import { env } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import { attemptRoute } from './routes/attemptRoute';
 import { authRoute } from './routes/authRoute';
+import { documentRoute } from './routes/documentRoute';
 import { healthRoute } from './routes/healthRoute';
-import { learningCardRoute } from './routes/learningCardRoute';
+import { knowledgeBaseRoute } from './routes/knowledgeBaseRoute';
 import { practiceRoute } from './routes/practiceRoute';
-import { topicRoute } from './routes/topicRoute';
 
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) {
@@ -42,8 +42,8 @@ export function createApp() {
   app.use(express.json());
   app.use('/api/health', healthRoute);
   app.use('/api/auth', authRoute);
-  app.use('/api/topics', topicRoute);
-  app.use('/api/topics', learningCardRoute);
+  app.use('/api/documents', documentRoute);
+  app.use('/api/knowledge-base', knowledgeBaseRoute);
   app.use('/api', practiceRoute);
   app.use('/api/attempts', attemptRoute);
   app.use(errorHandler);

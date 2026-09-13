@@ -10,7 +10,7 @@ export function AttemptResultPage() {
     <main className="page page-topics">
       <section className="learning">
         <p className="learning-back">
-          <Link to={data ? `/topics/${data.topic.slug}` : '/topics'}>Back to topic</Link>
+          <Link to={data ? `/knowledge-base/topics/${data.topic.slug}` : '/knowledge-base'}>Back to topic</Link>
         </p>
 
         {isPending ? <p className="state">Loading practice result...</p> : null}
@@ -52,8 +52,8 @@ export function AttemptResultPage() {
             </ul>
 
             <div className="learning-nav">
-              <Link to={`/topics/${data.topic.slug}`}>Back to topic</Link>
-              <Link to={`/topics/${data.topic.slug}/practice`} className="practice-submit">
+              <Link to={`/knowledge-base/topics/${data.topic.slug}`}>Back to topic</Link>
+              <Link to={`/knowledge-base/topics/${data.topic.slug}/practice`} className="practice-submit">
                 Practice again
               </Link>
             </div>

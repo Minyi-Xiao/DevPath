@@ -25,7 +25,7 @@ export function PracticeHistoryPage() {
         {attempts && attempts.length === 0 ? (
           <p className="state">
             You have not completed any practice attempts yet.{' '}
-            <Link to="/topics">Start with a topic</Link>.
+            <Link to="/knowledge-base">Start with a topic</Link>.
           </p>
         ) : null}
 
