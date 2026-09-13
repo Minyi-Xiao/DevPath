@@ -4,6 +4,7 @@ import { after, describe, it } from 'node:test';
 import request from 'supertest';
 import { createApp } from '../src/app';
 import { prisma } from '../src/lib/prisma';
+import { createOwnedPracticeFixture } from './helpers/practiceFixture';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -21,31 +22,8 @@ async function registerAgent(email = uniqueEmail(), password = 'password12') {
   return { agent, response, email, password };
 }
 
-async function getPracticeFixture() {
-  const topicsResponse = await request(app).get('/api/topics').expect(200);
-  const topic = topicsResponse.body.topics[0];
-
-  assert.ok(topic, 'Seeded topics are required for practice history tests');
-
-  const practiceResponse = await request(app).get(`/api/topics/${topic.slug}/practice`).expect(200);
-  const questions = practiceResponse.body.questions as Array<{
-    id: string;
-    options: Array<{ id: string }>;
-  }>;
-
-  assert.ok(questions.length > 0, 'Seeded practice questions are required for practice history tests');
-
-  return {
-    topicSlug: topic.slug as string,
-    answers: questions.map((question) => {
-      assert.ok(question.options[0], 'Each practice question needs at least one option');
-
-      return {
-        questionId: question.id,
-        optionId: question.options[0].id,
-      };
-    }),
-  };
+async function getPracticeFixture(userId: string) {
+  return createOwnedPracticeFixture(userId);
 }
 
 async function submitPractice(agent: ReturnType<typeof request.agent>, fixture: Awaited<ReturnType<typeof getPracticeFixture>>) {
@@ -119,16 +97,18 @@ describe('practice history', () => {
   });
 
   it('returns only the authenticated user attempts, newest first', async () => {
-    const fixture = await getPracticeFixture();
     const owner = await registerAgent(uniqueEmail('history-owner'));
     const other = await registerAgent(uniqueEmail('history-other'));
 
     assert.equal(owner.response.status, 200);
     assert.equal(other.response.status, 200);
 
-    const olderAttemptId = await submitPractice(owner.agent, fixture);
-    const newerAttemptId = await submitPractice(owner.agent, fixture);
-    const otherAttemptId = await submitPractice(other.agent, fixture);
+    const ownerFixture = await getPracticeFixture(owner.response.body.id);
+    const otherFixture = await getPracticeFixture(other.response.body.id);
+
+    const olderAttemptId = await submitPractice(owner.agent, ownerFixture);
+    const newerAttemptId = await submitPractice(owner.agent, ownerFixture);
+    const otherAttemptId = await submitPractice(other.agent, otherFixture);
 
     await prisma.attempt.update({
       where: { id: olderAttemptId },
@@ -173,11 +153,10 @@ describe('practice history', () => {
   });
 
   it('does not include AttemptAnswers or private user data in the list response', async () => {
-    const fixture = await getPracticeFixture();
     const owner = await registerAgent(uniqueEmail('history-shape'));
     assert.equal(owner.response.status, 200);
 
-    await submitPractice(owner.agent, fixture);
+    await submitPractice(owner.agent, await getPracticeFixture(owner.response.body.id));
 
     const response = await owner.agent.get('/api/attempts');
     assert.equal(response.status, 200);

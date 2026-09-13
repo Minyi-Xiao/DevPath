@@ -25,6 +25,10 @@ const envSchema = z.object({
   AUTH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 7),
   AUTH_COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
   AUTH_COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  UPLOAD_DIR: z.string().min(1).default('uploads'),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
+  OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
 });
 
 export const env = envSchema.parse(process.env);

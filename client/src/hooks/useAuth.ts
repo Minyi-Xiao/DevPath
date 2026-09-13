@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchCurrentUser, login, logout, register } from '../api/auth';
+import { currentUserQueryKey, resetUserScopedQueries } from '../lib/queryCache';
 
-export const currentUserQueryKey = ['auth', 'me'] as const;
+export { currentUserQueryKey };
 
 export function useCurrentUser() {
   return useQuery({
@@ -19,8 +20,7 @@ export function useRegister() {
   return useMutation({
     mutationFn: register,
     onSuccess: (user) => {
-      queryClient.setQueryData(currentUserQueryKey, user);
-      queryClient.removeQueries({ queryKey: ['attempts'] });
+      resetUserScopedQueries(queryClient, user);
     },
   });
 }
@@ -31,8 +31,7 @@ export function useLogin() {
   return useMutation({
     mutationFn: login,
     onSuccess: (user) => {
-      queryClient.setQueryData(currentUserQueryKey, user);
-      queryClient.removeQueries({ queryKey: ['attempts'] });
+      resetUserScopedQueries(queryClient, user);
     },
   });
 }
@@ -43,8 +42,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: logout,
     onSuccess: () => {
-      queryClient.setQueryData(currentUserQueryKey, null);
-      queryClient.removeQueries({ queryKey: ['attempts'] });
+      resetUserScopedQueries(queryClient, null);
     },
   });
 }

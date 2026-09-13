@@ -60,3 +60,21 @@ npm run build        # typecheck/build both workspaces
 | `VITE_API_URL` | `client/.env` | Frontend API base URL (`http://localhost:3000/api`) |
 | `PORT` | `server/.env` | API port |
 | `CLIENT_URL` | `server/.env` | Allowed CORS origin |
+| `OPENAI_API_KEY` | `server/.env` | Required for document analysis and practice-question generation |
+| `OPENAI_MODEL` | `server/.env` | Chat model. Default: `gpt-4o-mini` |
+| `OPENAI_BASE_URL` | `server/.env` | OpenAI-compatible base URL. Default: `https://api.openai.com/v1` |
+
+## Document analysis with OpenAI
+
+Document analysis runs only on the Express server. The frontend never calls OpenAI.
+
+Local setup:
+
+1. Create an API key at https://platform.openai.com/api-keys
+2. Put the key in `server/.env`. Do not commit it.
+
+```env
+OPENAI_API_KEY=sk-your-key
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_BASE_URL=https://api.openai.com/v1
+```

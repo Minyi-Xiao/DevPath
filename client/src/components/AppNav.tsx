@@ -24,7 +24,10 @@ export function AppNav() {
         DevPath
       </Link>
       <nav className="app-nav-links">
-        <Link to="/topics">Topics</Link>
+        <Link to="/knowledge-base">Knowledge Base</Link>
+        <Link to="/new-knowledge" className="app-nav-cta">
+          + New Knowledge
+        </Link>
         {isPending ? null : user ? (
           <>
             <Link to="/history">History</Link>

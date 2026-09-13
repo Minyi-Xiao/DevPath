@@ -8,8 +8,12 @@ import {
 } from '../types/practice';
 import { http } from './http';
 
+const PRACTICE_PREPARE_TIMEOUT_MS = 5 * 60 * 1000;
+
 export async function fetchTopicPractice(topicSlug: string): Promise<TopicPracticeResponse> {
-  const { data } = await http.get(`/topics/${topicSlug}/practice`);
+  const { data } = await http.get(`/topics/${topicSlug}/practice`, {
+    timeout: PRACTICE_PREPARE_TIMEOUT_MS,
+  });
   return topicPracticeResponseSchema.parse(data);
 }
 
@@ -19,8 +23,24 @@ export async function submitPractice(payload: PracticeSubmitRequest): Promise<Pr
 }
 
 export function getTopicPracticeErrorMessage(error: unknown): string {
-  if (axios.isAxiosError(error) && error.response?.status === 404) {
-    return 'Topic not found.';
+  if (axios.isAxiosError(error)) {
+    if (error.code === 'ECONNABORTED') {
+      return 'Practice questions took too long to generate. Please try again.';
+    }
+
+    if (error.response?.status === 404) {
+      return 'Topic not found.';
+    }
+
+    if (
+      error.response?.status === 422 ||
+      error.response?.status === 502 ||
+      error.response?.status === 503 ||
+      error.response?.status === 504
+    ) {
+      const message = error.response.data?.message;
+      return typeof message === 'string' ? message : 'Could not generate practice questions. Please try again.';
+    }
   }
 
   return 'Could not load practice questions. Please try again.';

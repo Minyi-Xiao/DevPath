@@ -4,5 +4,5 @@ import { requireAuth } from '../middleware/requireAuth';
 
 export const practiceRoute = Router();
 
-practiceRoute.get('/topics/:topicSlug/practice', getTopicPractice);
+practiceRoute.get('/topics/:topicSlug/practice', requireAuth, getTopicPractice);
 practiceRoute.post('/practice/submit', requireAuth, submitPractice);

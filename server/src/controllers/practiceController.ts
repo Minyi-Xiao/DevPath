@@ -31,13 +31,15 @@ const submitPracticeBodySchema = z.object({
 
 export async function getTopicPractice(req: Request, res: Response, next: NextFunction) {
   try {
+    req.setTimeout(5 * 60 * 1000);
     const parsedParams = topicSlugParamsSchema.safeParse(req.params);
 
     if (!parsedParams.success) {
       throw new HttpError(400, 'Invalid topic slug');
     }
 
-    const payload = await listPracticeQuestionsByTopicSlug(parsedParams.data.topicSlug);
+    const user = getRequestUser(req);
+    const payload = await listPracticeQuestionsByTopicSlug(parsedParams.data.topicSlug, user.id);
 
     res.json(payload);
   } catch (error) {

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { createApp } from '../src/app';
 import { verifyPassword } from '../src/lib/password';
 import { prisma } from '../src/lib/prisma';
+import { createOwnedPracticeFixture } from './helpers/practiceFixture';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -22,31 +23,8 @@ async function registerAgent(email = uniqueEmail(), password = 'password12') {
   return { agent, response, email, password };
 }
 
-async function getPracticeFixture() {
-  const topicsResponse = await request(app).get('/api/topics').expect(200);
-  const topic = topicsResponse.body.topics[0];
-
-  assert.ok(topic, 'Seeded topics are required for practice ownership tests');
-
-  const practiceResponse = await request(app).get(`/api/topics/${topic.slug}/practice`).expect(200);
-  const questions = practiceResponse.body.questions as Array<{
-    id: string;
-    options: Array<{ id: string }>;
-  }>;
-
-  assert.ok(questions.length > 0, 'Seeded practice questions are required for practice ownership tests');
-
-  return {
-    topicSlug: topic.slug as string,
-    answers: questions.map((question) => {
-      assert.ok(question.options[0], 'Each practice question needs at least one option');
-
-      return {
-        questionId: question.id,
-        optionId: question.options[0].id,
-      };
-    }),
-  };
+async function getPracticeFixture(userId: string) {
+  return createOwnedPracticeFixture(userId);
 }
 
 after(async () => {
@@ -175,7 +153,10 @@ describe('authentication', () => {
 
 describe('attempt ownership', () => {
   it('rejects unauthenticated practice submissions', async () => {
-    const fixture = await getPracticeFixture();
+    const owner = await registerAgent(uniqueEmail('unauth-practice'));
+    assert.equal(owner.response.status, 200);
+
+    const fixture = await getPracticeFixture(owner.response.body.id);
     const response = await request(app).post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
       submissionId: randomUUID(),
@@ -187,13 +168,13 @@ describe('attempt ownership', () => {
   });
 
   it('stores the authenticated user on submit and only lets the owner read the attempt', async () => {
-    const fixture = await getPracticeFixture();
     const owner = await registerAgent(uniqueEmail('owner'));
     const other = await registerAgent(uniqueEmail('other'));
 
     assert.equal(owner.response.status, 200);
     assert.equal(other.response.status, 200);
 
+    const fixture = await getPracticeFixture(owner.response.body.id);
     const submitResponse = await owner.agent.post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
       submissionId: randomUUID(),
