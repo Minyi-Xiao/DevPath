@@ -1,11 +1,21 @@
 import { Outlet } from 'react-router-dom';
-import { AppNav } from '../components/AppNav';
+import { AppSidebar } from '../components/AppSidebar';
+import { PageBackButton, PageBackProvider } from '../components/PageBack';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '../components/ui/sidebar';
 
 export function AppLayout() {
   return (
-    <div className="app-shell">
-      <AppNav />
-      <Outlet />
-    </div>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <PageBackProvider>
+          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+            <SidebarTrigger />
+            <PageBackButton />
+          </header>
+          <Outlet />
+        </PageBackProvider>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

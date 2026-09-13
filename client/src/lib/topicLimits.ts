@@ -1,0 +1,2 @@
+export const TOPIC_NAME_MAX_LENGTH = 80;
+export const TOPIC_DESCRIPTION_MAX_LENGTH = 500;

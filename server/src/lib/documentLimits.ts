@@ -5,7 +5,7 @@ export const DOCUMENT_MAX_CHUNKS = 6;
 export const DOCUMENT_HARD_CARD_CAP = 24;
 export const DOCUMENT_MIN_QUALITY_CARDS = 3;
 export const DOCUMENT_MAX_KEY_POINTS = 10;
-export const DOCUMENT_MIN_PRACTICE_QUESTIONS = 3;
+export const DOCUMENT_MIN_PRACTICE_QUESTIONS = 1;
 export const DOCUMENT_MAX_PRACTICE_QUESTIONS = 8;
 
 export const DocumentErrorCode = {
@@ -31,7 +31,7 @@ export const documentErrorMessages: Record<DocumentErrorCode, string> = {
   ANALYSIS_TIMEOUT: 'Analysis timed out because the document is large. Please try again.',
   INVALID_AI_OUTPUT: 'The AI response was invalid. Please try again.',
   TOO_FEW_CARDS: 'The AI could not extract enough knowledge from this document. Please try again.',
-  TOO_FEW_QUESTIONS: 'The AI could not create enough practice questions. Please try starting practice again.',
+  TOO_FEW_QUESTIONS: 'The AI could not create the requested number of practice questions. Please try again, or choose a smaller count.',
   ANALYSIS_NOT_CONFIGURED: 'Knowledge analysis is not configured.',
   ANALYSIS_UNAVAILABLE: 'Knowledge analysis is temporarily unavailable.',
 };
@@ -52,11 +52,14 @@ export function cardRangeForDocument(pageCount: number | null, charCount: number
   return { min: 10, max: 18 };
 }
 
-export function questionRangeForCards(cardCount: number) {
-  return {
-    min: DOCUMENT_MIN_PRACTICE_QUESTIONS,
-    max: Math.min(DOCUMENT_MAX_PRACTICE_QUESTIONS, Math.max(DOCUMENT_MIN_PRACTICE_QUESTIONS, cardCount)),
-  };
+export function questionRangeForCards(cardCount: number, requestedCount = DOCUMENT_MAX_PRACTICE_QUESTIONS) {
+  const requested = Math.min(
+    DOCUMENT_MAX_PRACTICE_QUESTIONS,
+    Math.max(DOCUMENT_MIN_PRACTICE_QUESTIONS, requestedCount),
+  );
+  const target = Math.min(requested, Math.max(0, cardCount));
+
+  return { min: target, max: target };
 }
 
 export function chunkExtractedText(text: string) {

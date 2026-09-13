@@ -17,6 +17,16 @@ export async function fetchTopicPractice(topicSlug: string): Promise<TopicPracti
   return topicPracticeResponseSchema.parse(data);
 }
 
+export async function startTopicPractice(
+  topicSlug: string,
+  input: { documentIds?: string[]; count: number },
+): Promise<TopicPracticeResponse> {
+  const { data } = await http.post(`/topics/${topicSlug}/practice`, input, {
+    timeout: PRACTICE_PREPARE_TIMEOUT_MS,
+  });
+  return topicPracticeResponseSchema.parse(data);
+}
+
 export async function submitPractice(payload: PracticeSubmitRequest): Promise<PracticeSubmitResponse> {
   const { data } = await http.post('/practice/submit', payload);
   return practiceSubmitResponseSchema.parse(data);
@@ -30,6 +40,11 @@ export function getTopicPracticeErrorMessage(error: unknown): string {
 
     if (error.response?.status === 404) {
       return 'Topic not found.';
+    }
+
+    if (error.response?.status === 400) {
+      const message = error.response.data?.message;
+      return typeof message === 'string' ? message : 'Choose a valid question count.';
     }
 
     if (
