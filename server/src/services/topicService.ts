@@ -95,6 +95,30 @@ export async function getKnowledgeBaseTopic(userId: string, topicSlug: string) {
   };
 }
 
+export async function updateUserTopic(
+  userId: string,
+  topicSlug: string,
+  input: { name: string; description: string },
+) {
+  const topic = await prisma.topic.findFirst({
+    where: userTopicWhere(userId, topicSlug),
+    select: { id: true },
+  });
+
+  if (!topic) {
+    throw new HttpError(404, 'Topic not found');
+  }
+
+  return prisma.topic.update({
+    where: { id: topic.id },
+    data: {
+      name: input.name,
+      description: input.description,
+    },
+    select: publicTopicSelect,
+  });
+}
+
 export async function createUserTopic(userId: string, name: string, description: string) {
   const slug = await allocateUserTopicSlug(userId, name);
 

@@ -1,6 +1,10 @@
+import { CircleAlert } from 'lucide-react';
 import { useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocumentErrorMessage, validateDocumentFile } from '../api/documents';
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { useRetryDocument } from '../hooks/useRetryDocument';
 import { useUploadDocument } from '../hooks/useUploadDocument';
 import { isSuccessfulDocumentAnalysis, type KnowledgeDocument } from '../types/document';
@@ -121,57 +125,84 @@ export function NewKnowledgePage() {
   const displayedSize = file ? formatFileSize(file.size) : null;
 
   return (
-    <main className="page page-topics">
-      <section className="topics">
-        <h1>New Knowledge</h1>
-        <p className="tagline">Upload a learning document and turn it into structured knowledge with AI.</p>
+    <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 p-6">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">New Knowledge</h1>
+        <p className="text-muted-foreground">
+          Upload a learning document and turn it into structured knowledge with AI.
+        </p>
+      </div>
 
-        <article className="upload-card">
-          <h2>Upload a document</h2>
-          <p className="upload-meta">PDF only · Maximum 40MB</p>
+      <Card className="max-w-xl">
+        <CardHeader>
+          <CardTitle className="text-lg">Upload a document</CardTitle>
+          <CardDescription>PDF only · Maximum 40MB</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <Button asChild variant="outline" className="w-fit" disabled={isAnalysing}>
+            <label className={isAnalysing ? 'pointer-events-none' : 'cursor-pointer'}>
+              Choose PDF
+              <input
+                type="file"
+                className="sr-only"
+                accept="application/pdf,.pdf"
+                disabled={isAnalysing}
+                onChange={handleFileChange}
+              />
+            </label>
+          </Button>
 
-          <label className={`file-picker ${isAnalysing ? 'file-picker-disabled' : ''}`}>
-            Choose PDF
-            <input
-              type="file"
-              accept="application/pdf,.pdf"
-              disabled={isAnalysing}
-              onChange={handleFileChange}
-            />
-          </label>
-
-          {displayedFilename ? <p className="upload-file">{displayedFilename}</p> : null}
-          {displayedSize && !failedDocument ? <p className="upload-size">{displayedSize}</p> : null}
-
-          {isAnalysing ? (
-            <div className="upload-progress">
-              <p className="state">Analysing your document...</p>
-              <p className="upload-meta">
-                Extracting content and generating knowledge cards. This may take a moment.
-              </p>
+          {displayedFilename ? (
+            <div className="space-y-1">
+              <p className="break-all text-sm font-medium">{displayedFilename}</p>
+              {displayedSize && !failedDocument ? (
+                <p className="text-sm text-muted-foreground">{displayedSize}</p>
+              ) : null}
             </div>
           ) : null}
 
+          {isAnalysing ? (
+            <Alert>
+              <AlertTitle>Analysing your document...</AlertTitle>
+              <AlertDescription>
+                Extracting content and generating knowledge cards. This may take a moment.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           {failedDocument && !isAnalysing ? (
-            <div className="upload-failure">
-              <p className="state state-error">Analysis failed</p>
-              <p className="upload-meta">{failedDocument.errorMessage}</p>
-              <button type="button" className="practice-start" onClick={handleRetry}>
+            <div className="grid gap-3">
+              <Alert variant="destructive">
+                <CircleAlert />
+                <AlertTitle>Analysis failed</AlertTitle>
+                <AlertDescription>{failedDocument.errorMessage}</AlertDescription>
+              </Alert>
+              <Button type="button" className="w-fit" onClick={handleRetry}>
                 Retry Analysis
-              </button>
+              </Button>
             </div>
           ) : null}
 
           {!failedDocument && !isAnalysing ? (
-            <button type="button" className="practice-start" disabled={!file} onClick={handleAnalyse}>
+            <Button type="button" className="w-fit" disabled={!file} onClick={handleAnalyse}>
               Analyse Document
-            </button>
+            </Button>
           ) : null}
 
-          {validationError ? <p className="state state-error">{validationError}</p> : null}
-          {requestError ? <p className="state state-error">{requestError}</p> : null}
-        </article>
-      </section>
+          {validationError ? (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{validationError}</AlertDescription>
+            </Alert>
+          ) : null}
+          {requestError ? (
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{requestError}</AlertDescription>
+            </Alert>
+          ) : null}
+        </CardContent>
+      </Card>
     </main>
   );
 }

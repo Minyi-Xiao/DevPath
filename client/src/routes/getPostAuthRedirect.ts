@@ -7,5 +7,5 @@ export function getPostAuthRedirect(location: Location) {
     return `${from.pathname}${from.search}`;
   }
 
-  return '/knowledge-base';
+  return '/';
 }

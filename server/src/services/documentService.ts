@@ -134,9 +134,7 @@ export async function saveDocumentToKnowledgeBase(
     (await createUserTopic(
       userId,
       input.newTopic?.name ?? document.suggestedTopicName ?? document.filename,
-      input.newTopic?.description?.trim() ||
-        document.summary?.slice(0, 240) ||
-        'Knowledge collected from uploaded documents.',
+      input.newTopic?.description?.trim() ?? '',
     ));
 
   await prisma.$transaction(async (tx) => {

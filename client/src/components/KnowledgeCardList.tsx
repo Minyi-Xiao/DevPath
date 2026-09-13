@@ -7,6 +7,7 @@ type KnowledgeCardListItem = {
   title: string;
   content: string;
   codeExample: string | null;
+  sourceLabel?: string | null;
 };
 
 function getCardKey(card: KnowledgeCardListItem, index: number) {
@@ -18,7 +19,7 @@ export function KnowledgeCardList({ cards }: { cards: KnowledgeCardListItem[] })
 
   return (
     <>
-      <ul className="review-cards">
+      <ul className="grid gap-4">
         {items.map((card, index) => (
           <li key={getCardKey(card, (page - 1) * LIST_PAGE_SIZE + index)}>
             <KnowledgeCardView card={card} />

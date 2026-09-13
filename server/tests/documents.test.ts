@@ -29,41 +29,19 @@ async function registerAgent(email = uniqueEmail()) {
 }
 
 function mockPracticeQuestions() {
-  setPracticeQuestionGeneratorForTests(async () => [
-    {
-      prompt: 'When does effect cleanup run?',
-      difficulty: 'BEGINNER',
-      explanation: 'Cleanup runs before the next effect and on unmount.',
+  setPracticeQuestionGeneratorForTests(async (input) =>
+    Array.from({ length: input.requestedCount ?? input.cards.length }, (_, index) => ({
+      prompt: `Practice question ${index + 1}?`,
+      difficulty: index === 1 ? 'INTERMEDIATE' : 'BEGINNER',
+      explanation: `Explanation for question ${index + 1}.`,
       options: [
-        { text: 'Before the next effect and on unmount', isCorrect: true },
-        { text: 'Only after the first paint', isCorrect: false },
-        { text: 'Only in production', isCorrect: false },
-        { text: 'Never', isCorrect: false },
+        { text: `Correct ${index + 1}`, isCorrect: true },
+        { text: `Wrong A ${index + 1}`, isCorrect: false },
+        { text: `Wrong B ${index + 1}`, isCorrect: false },
+        { text: `Wrong C ${index + 1}`, isCorrect: false },
       ],
-    },
-    {
-      prompt: 'What do effects capture?',
-      difficulty: 'INTERMEDIATE',
-      explanation: 'Effects capture values from the render that created them.',
-      options: [
-        { text: 'Values from the render that created them', isCorrect: true },
-        { text: 'The latest props only', isCorrect: false },
-        { text: 'Nothing', isCorrect: false },
-        { text: 'Global state only', isCorrect: false },
-      ],
-    },
-    {
-      prompt: 'What belongs in a dependency array?',
-      difficulty: 'BEGINNER',
-      explanation: 'List every reactive value the effect reads.',
-      options: [
-        { text: 'Every reactive value the effect reads', isCorrect: true },
-        { text: 'Only primitive values', isCorrect: false },
-        { text: 'Only functions', isCorrect: false },
-        { text: 'Nothing, leave it empty', isCorrect: false },
-      ],
-    },
-  ]);
+    })),
+  );
 }
 
 function mockSuccessfulAnalysis(title = 'useEffect cleanup') {
@@ -215,12 +193,20 @@ describe('document knowledge pipeline', () => {
     assert.deepEqual(strangerKb.body, { topics: [] });
 
     const detail = await owner.agent.get('/api/knowledge-base/topics/react-fundamentals').expect(200);
+    assert.equal(detail.body.topic.description, '');
     assert.equal(detail.body.knowledgeCards.length, 3);
     assert.equal(detail.body.documents.length, 1);
     assert.equal(detail.body.topic.practiceQuestionCount, 0);
     assert.equal(detail.body.knowledgeCards[0].codeExample.includes('useEffect'), true);
 
-    const practice = await owner.agent.get('/api/topics/react-fundamentals/practice').expect(200);
+    const tooMany = await owner.agent.post('/api/topics/react-fundamentals/practice').send({ count: 5 });
+    assert.equal(tooMany.status, 400);
+    assert.match(tooMany.body.message, /at most 3 questions/);
+
+    const practice = await owner.agent
+      .post('/api/topics/react-fundamentals/practice')
+      .send({ count: 3 })
+      .expect(200);
     assert.equal(practice.body.questions.length, 3);
     assert.equal(practice.body.questions[0].options.length, 4);
     assert.equal('isCorrect' in practice.body.questions[0].options[0], false);
@@ -228,7 +214,7 @@ describe('document knowledge pipeline', () => {
     const strangerDetail = await stranger.agent.get('/api/knowledge-base/topics/react-fundamentals');
     assert.equal(strangerDetail.status, 404);
 
-    const strangerPractice = await stranger.agent.get('/api/topics/react-fundamentals/practice');
+    const strangerPractice = await stranger.agent.post('/api/topics/react-fundamentals/practice').send({ count: 5 });
     assert.equal(strangerPractice.status, 404);
   });
 
@@ -398,8 +384,8 @@ describe('document knowledge pipeline', () => {
     });
 
     const [first, second] = await Promise.all([
-      agent.get('/api/topics/concurrent-practice/practice'),
-      agent.get('/api/topics/concurrent-practice/practice'),
+      agent.post('/api/topics/concurrent-practice/practice').send({ count: 3 }),
+      agent.post('/api/topics/concurrent-practice/practice').send({ count: 3 }),
     ]);
 
     assert.equal(first.status, 200);
@@ -415,7 +401,43 @@ describe('document knowledge pipeline', () => {
         },
       },
     });
-    assert.equal(persisted, 3);
+    assert.equal(persisted, 6);
+  });
+
+  it('starts practice from selected documents and rejects unknown document ids', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis('First batch');
+
+    const firstUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'one.pdf');
+    const firstSave = await agent.post(`/api/documents/${firstUpload.body.document.id}/save`).send({
+      newTopic: { name: 'Scoped Practice' },
+    });
+    const topicId = firstSave.body.topic.id as string;
+    const firstDocumentId = firstUpload.body.document.id as string;
+
+    mockSuccessfulAnalysis('Second batch');
+    const secondUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'two.pdf');
+    await agent.post(`/api/documents/${secondUpload.body.document.id}/save`).send({ topicId });
+
+    const unknown = await agent.post('/api/topics/scoped-practice/practice').send({
+      count: 5,
+      documentIds: ['missing-document'],
+    });
+    assert.equal(unknown.status, 400);
+
+    const tooMany = await agent.post('/api/topics/scoped-practice/practice').send({
+      count: 8,
+      documentIds: [firstDocumentId],
+    });
+    assert.equal(tooMany.status, 400);
+    assert.match(tooMany.body.message, /at most 3 questions/);
+
+    const practice = await agent.post('/api/topics/scoped-practice/practice').send({
+      count: 3,
+      documentIds: [firstDocumentId],
+    });
+    assert.equal(practice.status, 200);
+    assert.equal(practice.body.questions.length, 3);
   });
 
   it('retries a failed analysis without requiring another upload', async () => {
@@ -510,8 +532,50 @@ describe('document knowledge pipeline', () => {
     assert.equal(kb.body.topics[0].knowledgeCardCount, 3);
     assert.equal(kb.body.topics[0].practiceQuestionCount, 0);
 
-    const practice = await agent.get('/api/topics/react-fundamentals/practice');
+    const practice = await agent.post('/api/topics/react-fundamentals/practice').send({ count: 3 });
     assert.equal(practice.status, 502);
     assert.equal(practice.body.errorCode, 'INVALID_AI_OUTPUT');
+  });
+
+  it('stores an optional topic description and lets the owner edit identity without changing the slug', async () => {
+    const owner = await registerAgent(uniqueEmail('topic-edit'));
+    const stranger = await registerAgent(uniqueEmail('topic-stranger'));
+    mockSuccessfulAnalysis();
+
+    const uploadResponse = await owner.agent.post('/api/documents').attach('file', minimalPdf, 'react-hooks.pdf');
+    const documentId = uploadResponse.body.document.id as string;
+    const saveResponse = await owner.agent.post(`/api/documents/${documentId}/save`).send({
+      newTopic: { name: 'React Fundamentals', description: 'Hooks and effect cleanup.' },
+    });
+
+    assert.equal(saveResponse.status, 200);
+    assert.equal(saveResponse.body.topic.slug, 'react-fundamentals');
+    assert.equal(saveResponse.body.topic.description, 'Hooks and effect cleanup.');
+
+    const updated = await owner.agent.patch('/api/knowledge-base/topics/react-fundamentals').send({
+      name: 'React Basics',
+      description: 'Core React notes.',
+    });
+
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.topic.name, 'React Basics');
+    assert.equal(updated.body.topic.slug, 'react-fundamentals');
+    assert.equal(updated.body.topic.description, 'Core React notes.');
+
+    const cleared = await owner.agent.patch('/api/knowledge-base/topics/react-fundamentals').send({
+      name: 'React Basics',
+      description: '',
+    });
+
+    assert.equal(cleared.status, 200);
+    assert.equal(cleared.body.topic.description, '');
+    assert.equal(cleared.body.topic.slug, 'react-fundamentals');
+
+    const strangerUpdate = await stranger.agent.patch('/api/knowledge-base/topics/react-fundamentals').send({
+      name: 'Stolen',
+      description: 'Nope',
+    });
+
+    assert.equal(strangerUpdate.status, 404);
   });
 });

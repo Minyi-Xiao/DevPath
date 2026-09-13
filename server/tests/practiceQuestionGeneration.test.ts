@@ -130,11 +130,38 @@ describe('practice question generation', () => {
     );
   });
 
-  it('treats fewer than 3 questions as a quality failure', async () => {
-    setAiProviderForTests(providerReturning(JSON.stringify(questionPayload(2))));
+  it('returns exactly the requested question count', async () => {
+    const manyCards = Array.from({ length: 8 }, (_, index) => ({
+      title: `Card ${index + 1}`,
+      content: `Knowledge unit ${index + 1}.`,
+      codeExample: null,
+      sourceRef: null,
+    }));
+    setAiProviderForTests(providerReturning(JSON.stringify(questionPayload(5))));
+
+    const questions = await generatePracticeQuestions({
+      topicName: 'React Fundamentals',
+      cards: manyCards,
+      requestedCount: 5,
+    });
+
+    assert.equal(questions.length, 5);
+  });
+
+  it('treats fewer questions than requested as a quality failure', async () => {
+    setAiProviderForTests(providerReturning(JSON.stringify(questionPayload(3))));
 
     await assert.rejects(
-      () => generatePracticeQuestions({ topicName: 'React Fundamentals', cards }),
+      () =>
+        generatePracticeQuestions({
+          topicName: 'React Fundamentals',
+          cards: [
+            ...cards,
+            { title: 'Effects', content: 'Effects run after paint.', codeExample: null, sourceRef: null },
+            { title: 'Renders', content: 'A render produces UI.', codeExample: null, sourceRef: null },
+          ],
+          requestedCount: 5,
+        }),
       (error: unknown) => error instanceof HttpError && error.errorCode === DocumentErrorCode.TOO_FEW_QUESTIONS,
     );
   });

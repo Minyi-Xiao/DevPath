@@ -11,7 +11,6 @@ import { analysisTimeoutError, invalidAiOutputError, isAbortError, mapProviderEr
 import { env } from '../config/env';
 import {
   DOCUMENT_MAX_PRACTICE_QUESTIONS,
-  DOCUMENT_MIN_PRACTICE_QUESTIONS,
   DocumentErrorCode,
   documentErrorMessages,
   questionRangeForCards,
@@ -34,6 +33,7 @@ export type DraftPracticeQuestion = {
 type PracticeQuestionGenerator = (input: {
   topicName: string;
   cards: DraftKnowledgeCard[];
+  requestedCount?: number;
 }) => Promise<DraftPracticeQuestion[]>;
 
 const optionSchema = z.object({
@@ -63,9 +63,10 @@ export function setPracticeQuestionGeneratorForTests(generator: PracticeQuestion
 export async function generatePracticeQuestions(input: {
   topicName: string;
   cards: DraftKnowledgeCard[];
+  requestedCount?: number;
 }): Promise<DraftPracticeQuestion[]> {
   if (generatorForTests) {
-    return normalizeQuestions(await generatorForTests(input), input.cards.length);
+    return normalizeQuestions(await generatorForTests(input), input.cards.length, input.requestedCount);
   }
 
   return generateWithConfiguredProvider(input);
@@ -74,9 +75,10 @@ export async function generatePracticeQuestions(input: {
 async function generateWithConfiguredProvider(input: {
   topicName: string;
   cards: DraftKnowledgeCard[];
+  requestedCount?: number;
 }): Promise<DraftPracticeQuestion[]> {
   const provider = getConfiguredAiProvider();
-  const range = questionRangeForCards(input.cards.length);
+  const range = questionRangeForCards(input.cards.length, input.requestedCount);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
   const startedAt = Date.now();
@@ -96,7 +98,7 @@ async function generateWithConfiguredProvider(input: {
       ok: true,
     });
 
-    return normalizeQuestions(parseGeneration(completion.text), input.cards.length);
+    return normalizeQuestions(parseGeneration(completion.text), input.cards.length, input.requestedCount);
   } catch (error) {
     logAiCall({
       provider: provider.name,
@@ -132,7 +134,7 @@ function buildPrompt(
   return [
     `Topic: ${input.topicName}`,
     `Return only a JSON object: {"questions":[...]}. No markdown, no extra keys.`,
-    `questions: ${range.min}-${range.max} multiple-choice items.`,
+    `Generate exactly ${range.max} multiple-choice questions.`,
     `Each question must have prompt, difficulty (BEGINNER|INTERMEDIATE|ADVANCED), explanation, and exactly 4 options.`,
     `Each option is { text, isCorrect }. Exactly one option may be true.`,
     `Keep prompt and option text short. Test the knowledge in these cards. Do not invent APIs or facts that are not in the cards.`,
@@ -273,11 +275,15 @@ function coerceDifficulty(value: unknown) {
   return normalized;
 }
 
-function normalizeQuestions(questions: DraftPracticeQuestion[], cardCount: number): DraftPracticeQuestion[] {
+function normalizeQuestions(
+  questions: DraftPracticeQuestion[],
+  cardCount: number,
+  requestedCount?: number,
+): DraftPracticeQuestion[] {
   const unique = dedupeQuestions(questions).slice(0, DOCUMENT_MAX_PRACTICE_QUESTIONS);
-  const range = questionRangeForCards(cardCount);
+  const range = questionRangeForCards(cardCount, requestedCount);
 
-  if (unique.length < DOCUMENT_MIN_PRACTICE_QUESTIONS || unique.length < range.min) {
+  if (unique.length < range.min) {
     throw new HttpError(422, documentErrorMessages.TOO_FEW_QUESTIONS, DocumentErrorCode.TOO_FEW_QUESTIONS);
   }
 

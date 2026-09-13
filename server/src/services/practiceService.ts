@@ -1,4 +1,4 @@
-import { AttemptStatus, Prisma, QuestionType } from '@prisma/client';
+import { AttemptStatus, DocumentStatus, Prisma, QuestionType } from '@prisma/client';
 import { HttpError } from '../lib/httpError';
 import { prisma } from '../lib/prisma';
 import { userTopicWhere } from '../lib/topicAccess';
@@ -61,6 +61,7 @@ export async function listPracticeQuestionsByTopicSlug(topicSlug: string, userId
           content: true,
           codeExample: true,
           sourceRef: true,
+          documentId: true,
         },
       },
     },
@@ -70,14 +71,79 @@ export async function listPracticeQuestionsByTopicSlug(topicSlug: string, userId
     throw new HttpError(404, 'Topic not found');
   }
 
-  const questions =
-    topic.questions.length > 0
-      ? topic.questions
-      : await ensurePracticeQuestions({
-          id: topic.id,
-          name: topic.name,
-          cards: topic.learningCards,
-        });
+  return {
+    topic: toPublicTopic(topic),
+    questions: topic.questions.map((question) => ({
+      id: question.id,
+      type: question.type,
+      prompt: question.prompt,
+      difficulty: question.difficulty,
+      tags: question.tags,
+      options: question.options.map((option) => ({
+        id: option.id,
+        text: option.text,
+        order: option.order,
+      })),
+    })),
+  };
+}
+
+export async function startPracticeSession(
+  topicSlug: string,
+  userId: string,
+  input: { documentIds?: string[]; count: number },
+) {
+  const topic = await prisma.topic.findFirst({
+    where: userTopicWhere(userId, topicSlug),
+    include: {
+      learningCards: {
+        orderBy: { order: 'asc' },
+        select: {
+          title: true,
+          content: true,
+          codeExample: true,
+          sourceRef: true,
+          documentId: true,
+        },
+      },
+      documents: {
+        where: { status: DocumentStatus.SAVED },
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!topic) {
+    throw new HttpError(404, 'Topic not found');
+  }
+
+  const ownedDocumentIds = new Set(topic.documents.map((document) => document.id));
+  const requestedDocumentIds = input.documentIds?.filter(Boolean) ?? [];
+
+  if (requestedDocumentIds.some((documentId) => !ownedDocumentIds.has(documentId))) {
+    throw new HttpError(400, 'One or more documents do not belong to this topic');
+  }
+
+  const cards =
+    requestedDocumentIds.length > 0
+      ? topic.learningCards.filter((card) => card.documentId && requestedDocumentIds.includes(card.documentId))
+      : topic.learningCards;
+
+  if (input.count > cards.length) {
+    throw new HttpError(
+      400,
+      cards.length === 1
+        ? 'These knowledge cards can support at most 1 question.'
+        : `These knowledge cards can support at most ${cards.length} questions.`,
+    );
+  }
+
+  const questions = await ensurePracticeQuestions({
+    id: topic.id,
+    name: topic.name,
+    cards,
+    requestedCount: input.count,
+  });
 
   return {
     topic: toPublicTopic(topic),
@@ -105,47 +171,35 @@ async function ensurePracticeQuestions(topic: {
     codeExample: string | null;
     sourceRef: string | null;
   }>;
+  requestedCount: number;
 }) {
   if (topic.cards.length === 0) {
-    return [];
+    throw new HttpError(400, 'No knowledge cards match this practice setup');
   }
 
   const generated = await generatePracticeQuestions({
     topicName: topic.name,
     cards: topic.cards,
+    requestedCount: topic.requestedCount,
   });
 
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.topic.update({
-        where: { id: topic.id },
-        data: { updatedAt: new Date() },
-      });
-
-      const existingCount = await tx.question.count({ where: { topicId: topic.id } });
-
-      if (existingCount > 0) {
-        return;
-      }
-
-      await persistPracticeQuestions(tx, topic.id, generated);
+  const createdIds = await prisma.$transaction(async (tx) => {
+    await tx.topic.update({
+      where: { id: topic.id },
+      data: { updatedAt: new Date() },
     });
-  } catch (error) {
-    if (!isUniqueConstraintError(error)) {
-      throw error;
-    }
-  }
 
-  const persisted = await prisma.question.findMany({
+    return persistPracticeQuestions(tx, topic.id, generated);
+  });
+
+  return prisma.question.findMany({
     where: {
-      topicId: topic.id,
+      id: { in: createdIds },
       type: QuestionType.MULTIPLE_CHOICE,
     },
     orderBy: { order: 'asc' },
     include: practiceQuestionInclude,
   });
-
-  return persisted;
 }
 
 async function persistPracticeQuestions(
@@ -160,9 +214,10 @@ async function persistPracticeQuestions(
   });
 
   const startingOrder = (latestQuestion?.order ?? 0) + 1;
+  const createdIds: string[] = [];
 
   for (const [index, question] of questions.entries()) {
-    await tx.question.create({
+    const created = await tx.question.create({
       data: {
         topicId,
         type: QuestionType.MULTIPLE_CHOICE,
@@ -178,8 +233,13 @@ async function persistPracticeQuestions(
           })),
         },
       },
+      select: { id: true },
     });
+
+    createdIds.push(created.id);
   }
+
+  return createdIds;
 }
 
 type PracticeAnswer = {
@@ -241,14 +301,16 @@ export async function submitPracticeAttempt(
     }
   }
 
-  if (answers.length !== questions.length) {
-    throw new HttpError(400, 'Answers must include every practice question for this topic');
+  const sessionQuestions = questions.filter((question) => seenQuestionIds.has(question.id));
+
+  if (sessionQuestions.length !== answers.length) {
+    throw new HttpError(400, 'Answers must include every question in this practice session');
   }
 
   const selectedOptionByQuestionId = new Map(answers.map((answer) => [answer.questionId, answer.optionId]));
 
   let correctCount = 0;
-  const results = questions.map((question) => {
+  const results = sessionQuestions.map((question) => {
     const correctOptions = question.options.filter((option) => option.isCorrect);
 
     if (correctOptions.length !== 1) {

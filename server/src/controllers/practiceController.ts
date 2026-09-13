@@ -2,7 +2,12 @@ import type { NextFunction, Request, Response } from 'express';
 import { z } from 'zod';
 import { HttpError } from '../lib/httpError';
 import { getRequestUser } from '../middleware/requireAuth';
-import { listPracticeQuestionsByTopicSlug, submitPracticeAttempt } from '../services/practiceService';
+import {
+  listPracticeQuestionsByTopicSlug,
+  startPracticeSession,
+  submitPracticeAttempt,
+} from '../services/practiceService';
+import { DOCUMENT_MAX_PRACTICE_QUESTIONS, DOCUMENT_MIN_PRACTICE_QUESTIONS } from '../lib/documentLimits';
 
 const topicSlugSchema = z
   .string()
@@ -28,6 +33,34 @@ const submitPracticeBodySchema = z.object({
     .min(1)
     .max(50),
 });
+
+const startPracticeBodySchema = z.object({
+  documentIds: z.array(z.string().trim().min(1)).max(50).optional(),
+  count: z.number().int().min(DOCUMENT_MIN_PRACTICE_QUESTIONS).max(DOCUMENT_MAX_PRACTICE_QUESTIONS),
+});
+
+export async function startTopicPractice(req: Request, res: Response, next: NextFunction) {
+  try {
+    req.setTimeout(5 * 60 * 1000);
+    const parsedParams = topicSlugParamsSchema.safeParse(req.params);
+    const parsedBody = startPracticeBodySchema.safeParse(req.body);
+
+    if (!parsedParams.success) {
+      throw new HttpError(400, 'Invalid topic slug');
+    }
+
+    if (!parsedBody.success) {
+      throw new HttpError(400, 'Choose a valid question count');
+    }
+
+    const user = getRequestUser(req);
+    const payload = await startPracticeSession(parsedParams.data.topicSlug, user.id, parsedBody.data);
+
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+}
 
 export async function getTopicPractice(req: Request, res: Response, next: NextFunction) {
   try {

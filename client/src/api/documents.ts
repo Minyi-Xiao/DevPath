@@ -15,7 +15,7 @@ export type SaveDocumentInput =
     }
   | {
       documentId: string;
-      newTopic: { name: string };
+      newTopic: { name: string; description?: string };
     };
 
 export const DOCUMENT_MAX_BYTES = 40 * 1024 * 1024;
