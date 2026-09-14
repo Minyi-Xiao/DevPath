@@ -1,4 +1,4 @@
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, Loader2 } from 'lucide-react';
 import { useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getDocumentErrorMessage, validateDocumentFile } from '../api/documents';
@@ -162,12 +162,19 @@ export function NewKnowledgePage() {
           ) : null}
 
           {isAnalysing ? (
-            <Alert>
-              <AlertTitle>Analysing your document...</AlertTitle>
-              <AlertDescription>
-                Extracting content and generating knowledge cards. This may take a moment.
-              </AlertDescription>
-            </Alert>
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-start gap-3 rounded-xl bg-muted/50 px-4 py-4"
+            >
+              <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Analysing your document</p>
+                <p className="text-sm text-muted-foreground">
+                  Extracting content and generating knowledge cards. This may take a moment.
+                </p>
+              </div>
+            </div>
           ) : null}
 
           {failedDocument && !isAnalysing ? (

@@ -1,4 +1,4 @@
-import { AttemptStatus, DocumentStatus, Prisma, QuestionType } from '@prisma/client';
+import { AttemptStatus, DocumentStatus, Prisma, QuestionDifficulty, QuestionType } from '@prisma/client';
 import { HttpError } from '../lib/httpError';
 import { prisma } from '../lib/prisma';
 import { userTopicWhere } from '../lib/topicAccess';
@@ -73,18 +73,7 @@ export async function listPracticeQuestionsByTopicSlug(topicSlug: string, userId
 
   return {
     topic: toPublicTopic(topic),
-    questions: topic.questions.map((question) => ({
-      id: question.id,
-      type: question.type,
-      prompt: question.prompt,
-      difficulty: question.difficulty,
-      tags: question.tags,
-      options: question.options.map((option) => ({
-        id: option.id,
-        text: option.text,
-        order: option.order,
-      })),
-    })),
+    questions: topic.questions.map(toPublicPracticeQuestion),
   };
 }
 
@@ -147,18 +136,7 @@ export async function startPracticeSession(
 
   return {
     topic: toPublicTopic(topic),
-    questions: questions.map((question) => ({
-      id: question.id,
-      type: question.type,
-      prompt: question.prompt,
-      difficulty: question.difficulty,
-      tags: question.tags,
-      options: question.options.map((option) => ({
-        id: option.id,
-        text: option.text,
-        order: option.order,
-      })),
-    })),
+    questions: questions.map(toPublicPracticeQuestion),
   };
 }
 
@@ -240,6 +218,62 @@ async function persistPracticeQuestions(
   }
 
   return createdIds;
+}
+
+function toPublicPracticeQuestion(question: {
+  id: string;
+  type: QuestionType;
+  prompt: string;
+  difficulty: QuestionDifficulty;
+  tags: Array<{ id: string; name: string; slug: string }>;
+  options: Array<{ id: string; text: string; order: number }>;
+}) {
+  return {
+    id: question.id,
+    type: question.type,
+    prompt: question.prompt,
+    difficulty: question.difficulty,
+    tags: question.tags,
+    options: question.options.map((option) => ({
+      id: option.id,
+      text: option.text,
+      order: option.order,
+    })),
+  };
+}
+
+export async function getPracticeSessionFromAttempt(attemptId: string, userId: string) {
+  const attempt = await prisma.attempt.findFirst({
+    where: { id: attemptId, userId },
+    include: {
+      topic: true,
+      answers: {
+        include: {
+          question: {
+            include: practiceQuestionInclude,
+          },
+        },
+      },
+    },
+  });
+
+  if (!attempt) {
+    throw new HttpError(404, 'Attempt not found');
+  }
+
+  const questions = [...attempt.answers]
+    .map((answer) => answer.question)
+    .filter((question) => question.type === QuestionType.MULTIPLE_CHOICE)
+    .sort((left, right) => left.order - right.order);
+
+  if (questions.length === 0) {
+    throw new HttpError(400, 'This attempt has no questions to practice again');
+  }
+
+  return {
+    topic: toPublicTopic(attempt.topic),
+    questions: questions.map(toPublicPracticeQuestion),
+  };
 }
 
 type PracticeAnswer = {
@@ -340,7 +374,7 @@ export async function submitPracticeAttempt(
     };
   });
 
-  const total = questions.length;
+  const total = sessionQuestions.length;
   const percentage = Math.round((correctCount / total) * 100);
   const completedAt = new Date();
 

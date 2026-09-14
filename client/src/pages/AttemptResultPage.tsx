@@ -2,6 +2,7 @@ import { CircleAlert } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { getAttemptErrorMessage } from '../api/attempts';
 import { usePageBackTo } from '../components/PageBack';
+import { PracticeAgainDialog } from '../components/PracticeAgainDialog';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -84,9 +85,9 @@ export function AttemptResultPage() {
             <Button variant="outline" asChild>
               <Link to={`/knowledge-base/topics/${data.topic.slug}`}>Back to topic</Link>
             </Button>
-            <Button asChild>
-              <Link to={`/knowledge-base/topics/${data.topic.slug}/practice`}>Practice again</Link>
-            </Button>
+            <PracticeAgainDialog topicSlug={data.topic.slug} attemptId={data.attemptId}>
+              <Button type="button">Practice again</Button>
+            </PracticeAgainDialog>
           </div>
         </>
       ) : null}

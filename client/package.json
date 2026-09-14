@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.app.json --noEmit && vite build",
     "preview": "vite preview",
-    "test": "tsx --test tests/queryCache.test.ts tests/httpAuth.test.ts tests/homeWorkspace.test.ts tests/filterKnowledgeCards.test.ts tests/pageBack.test.ts"
+    "test": "tsx --test tests/queryCache.test.ts tests/httpAuth.test.ts tests/homeWorkspace.test.ts tests/filterKnowledgeCards.test.ts tests/pageBack.test.ts tests/practicePaths.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",

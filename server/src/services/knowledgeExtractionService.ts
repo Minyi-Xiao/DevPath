@@ -42,6 +42,8 @@ const draftCardSchema = z.object({
   sourceRef: z.string().trim().max(80).nullable().optional(),
 });
 
+const SUMMARY_MAX_CHARS = 400;
+
 const extractionSchema = z.object({
   summary: z.string().trim().min(1).max(1200),
   keyPoints: z.array(z.string().trim().min(1).max(240)).min(1).max(DOCUMENT_MAX_KEY_POINTS),
@@ -180,7 +182,7 @@ function buildPrompt(input: {
     `Page count: ${input.pageCount}`,
     chunkNote,
     `Return JSON with keys: summary, keyPoints, suggestedTopicName, cards.`,
-    `summary: 80-150 words covering the document (or this chunk).`,
+    `summary: 2-3 sentences (about 40 words) on what the document is about. Do not list every section.`,
     `keyPoints: 5-10 short bullets.`,
     `cards: ${input.cardMin}-${input.cardMax} objects with title, content, optional codeExample, optional sourceRef (page like "p.12-14").`,
     `Each card must be one reusable developer knowledge unit: a concept, API, pitfall, or pattern.`,
@@ -238,7 +240,7 @@ function normalizeExtraction(result: KnowledgeExtractionResult, filename: string
   }
 
   return {
-    summary: result.summary.trim(),
+    summary: shortenSummary(result.summary),
     keyPoints: uniqueStrings(result.keyPoints).slice(0, DOCUMENT_MAX_KEY_POINTS),
     suggestedTopicName: result.suggestedTopicName.trim() || topicNameFromFilename(filename),
     cards,
@@ -248,16 +250,31 @@ function normalizeExtraction(result: KnowledgeExtractionResult, filename: string
 function mergeChunkResults(results: KnowledgeExtractionResult[], filename: string): KnowledgeExtractionResult {
   return normalizeExtraction(
     {
-      summary: results
-        .map((result) => result.summary)
-        .join(' ')
-        .slice(0, 1200),
+      summary: results[0]?.summary ?? '',
       keyPoints: results.flatMap((result) => result.keyPoints),
       suggestedTopicName: results[0]?.suggestedTopicName ?? '',
       cards: results.flatMap((result) => result.cards),
     },
     filename,
   );
+}
+
+function shortenSummary(summary: string) {
+  const trimmed = summary.trim();
+
+  if (trimmed.length <= SUMMARY_MAX_CHARS) {
+    return trimmed;
+  }
+
+  const sliced = trimmed.slice(0, SUMMARY_MAX_CHARS);
+  const lastSentence = Math.max(sliced.lastIndexOf('. '), sliced.lastIndexOf('。'));
+
+  if (lastSentence >= 80) {
+    return sliced.slice(0, lastSentence + 1).trim();
+  }
+
+  const lastSpace = sliced.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? sliced.slice(0, lastSpace) : sliced).trim()}…`;
 }
 
 function dedupeCards(cards: DraftKnowledgeCard[]) {

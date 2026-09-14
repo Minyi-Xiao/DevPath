@@ -1,5 +1,6 @@
 import type { AttemptHistoryItem } from '../types/attempt';
 import type { KnowledgeBaseTopic } from '../types/knowledgeBase';
+import { getTopicPracticePath } from './practicePaths';
 
 export const RECENT_TOPIC_LIMIT = 3;
 export const OTHER_TOPIC_LIMIT = 2;
@@ -86,7 +87,7 @@ export function buildHomeWorkspace(
       primaryCta: canPractice
         ? {
             label: 'Start Practice',
-            to: `/knowledge-base/topics/${practiceTopic.slug}/practice`,
+            to: getTopicPracticePath(practiceTopic.slug),
           }
         : { label: 'New Knowledge', to: '/new-knowledge' },
       stats,
@@ -115,7 +116,7 @@ export function buildHomeWorkspace(
     nextStep: `Your last ${latestAttempt.topic.name} practice was ${latestAttempt.percentage}%. Practice again?`,
     primaryCta: {
       label: 'Practice again',
-      to: `/knowledge-base/topics/${latestAttempt.topic.slug}/practice`,
+      to: getTopicPracticePath(latestAttempt.topic.slug),
     },
     stats,
     latestAttempt,

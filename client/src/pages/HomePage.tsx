@@ -2,6 +2,7 @@ import { CircleAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getAttemptHistoryErrorMessage } from '../api/attempts';
 import { getKnowledgeBaseErrorMessage } from '../api/knowledgeBase';
+import { PracticeAgainDialog } from '../components/PracticeAgainDialog';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -93,9 +94,11 @@ function ContinueLearning({
                   {latestAttempt.correctCount} / {latestAttempt.totalQuestions} correct ·{' '}
                   {formatAttemptDate(latestAttempt.completedAt)}
                 </CardDescription>
-                <Button asChild className="mt-auto w-fit">
-                  <Link to={`/knowledge-base/topics/${latestAttempt.topic.slug}/practice`}>Practice again</Link>
-                </Button>
+                <PracticeAgainDialog topicSlug={latestAttempt.topic.slug} attemptId={latestAttempt.id}>
+                  <Button type="button" className="mt-auto w-fit">
+                    Practice again
+                  </Button>
+                </PracticeAgainDialog>
               </CardHeader>
             </Card>
           </li>
@@ -239,9 +242,18 @@ export function HomePage() {
           <h1 className="text-2xl font-semibold tracking-tight">{workspace.title}</h1>
           <p className="text-muted-foreground">{workspace.nextStep}</p>
         </div>
-        <Button asChild>
-          <Link to={workspace.primaryCta.to}>{workspace.primaryCta.label}</Link>
-        </Button>
+        {workspace.primaryCta.label === 'Practice again' && workspace.latestAttempt ? (
+          <PracticeAgainDialog
+            topicSlug={workspace.latestAttempt.topic.slug}
+            attemptId={workspace.latestAttempt.id}
+          >
+            <Button type="button">{workspace.primaryCta.label}</Button>
+          </PracticeAgainDialog>
+        ) : (
+          <Button asChild>
+            <Link to={workspace.primaryCta.to}>{workspace.primaryCta.label}</Link>
+          </Button>
+        )}
       </div>
 
       <WorkspaceStats stats={workspace.stats} />
