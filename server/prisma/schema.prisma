@@ -104,27 +104,34 @@ model LearningCard {
   updatedAt     DateTime  @updatedAt
   topic         Topic     @relation(fields: [topicId], references: [id], onDelete: Cascade)
   document      Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  questions     Question[]
 
   @@unique([topicId, order])
   @@index([documentId])
 }
 
 model Question {
-  id             String             @id @default(cuid())
-  topicId        String
-  type           QuestionType
-  prompt         String
-  difficulty     QuestionDifficulty
-  explanation    String
-  order          Int
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-  topic          Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
-  options        QuestionOption[]
-  tags           Tag[]
-  attemptAnswers AttemptAnswer[]
+  id                String             @id @default(cuid())
+  topicId           String
+  type              QuestionType
+  prompt            String
+  difficulty        QuestionDifficulty
+  explanation       String
+  order             Int
+  sourceFingerprint String?
+  generationId      String?
+  sourceCardId      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  topic             Topic              @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  sourceCard        LearningCard?      @relation(fields: [sourceCardId], references: [id], onDelete: SetNull)
+  options           QuestionOption[]
+  tags              Tag[]
+  attemptAnswers    AttemptAnswer[]
 
   @@unique([topicId, order])
+  @@index([topicId, sourceFingerprint, generationId])
+  @@index([sourceCardId])
 }
 
 model QuestionOption {

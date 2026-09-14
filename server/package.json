@@ -9,7 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/filename.test.ts"
+    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/documentChunking.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/practiceFingerprint.test.ts tests/practiceSourceCard.test.ts tests/filename.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -1,8 +1,11 @@
 import { AttemptStatus, DocumentStatus, Prisma, QuestionDifficulty, QuestionType } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { HttpError } from '../lib/httpError';
+import { practiceSourceFingerprint } from '../lib/practiceFingerprint';
 import { prisma } from '../lib/prisma';
 import { userTopicWhere } from '../lib/topicAccess';
 import { generatePracticeQuestions, type DraftPracticeQuestion } from './practiceQuestionGenerationService';
+import { sourceCardIdByNumber, toPublicSourceCard } from '../lib/practiceSourceCard';
 
 function toPublicTopic(topic: {
   id: string;
@@ -43,6 +46,13 @@ const practiceQuestionInclude = {
     },
     orderBy: { slug: 'asc' as const },
   },
+  sourceCard: {
+    select: {
+      id: true,
+      order: true,
+      title: true,
+    },
+  },
 };
 
 export async function listPracticeQuestionsByTopicSlug(topicSlug: string, userId: string) {
@@ -77,10 +87,18 @@ export async function listPracticeQuestionsByTopicSlug(topicSlug: string, userId
   };
 }
 
+type PracticeQuestionRecord = Awaited<ReturnType<typeof loadPracticeQuestionsByIds>>[number];
+type PracticeQuestionResult = {
+  questions: PracticeQuestionRecord[];
+  reused: boolean;
+};
+
+const inFlightPracticeGenerations = new Map<string, Promise<PracticeQuestionResult>>();
+
 export async function startPracticeSession(
   topicSlug: string,
   userId: string,
-  input: { documentIds?: string[]; count: number },
+  input: { documentIds?: string[]; count: number; regenerate?: boolean },
 ) {
   const topic = await prisma.topic.findFirst({
     where: userTopicWhere(userId, topicSlug),
@@ -88,11 +106,13 @@ export async function startPracticeSession(
       learningCards: {
         orderBy: { order: 'asc' },
         select: {
+          id: true,
           title: true,
           content: true,
           codeExample: true,
           sourceRef: true,
           documentId: true,
+          order: true,
         },
       },
       documents: {
@@ -127,16 +147,18 @@ export async function startPracticeSession(
     );
   }
 
-  const questions = await ensurePracticeQuestions({
+  const result = await ensurePracticeQuestions({
     id: topic.id,
     name: topic.name,
     cards,
     requestedCount: input.count,
+    regenerate: Boolean(input.regenerate),
   });
 
   return {
     topic: toPublicTopic(topic),
-    questions: questions.map(toPublicPracticeQuestion),
+    questions: result.questions.map(toPublicPracticeQuestion),
+    reused: result.reused,
   };
 }
 
@@ -144,22 +166,80 @@ async function ensurePracticeQuestions(topic: {
   id: string;
   name: string;
   cards: Array<{
+    id: string;
     title: string;
     content: string;
     codeExample: string | null;
     sourceRef: string | null;
+    order: number;
   }>;
   requestedCount: number;
-}) {
+  regenerate: boolean;
+}): Promise<PracticeQuestionResult> {
   if (topic.cards.length === 0) {
     throw new HttpError(400, 'No knowledge cards match this practice setup');
   }
 
+  const fingerprint = practiceSourceFingerprint({
+    cards: topic.cards,
+    count: topic.requestedCount,
+  });
+  const cacheKey = `${topic.id}:${fingerprint}`;
+
+  if (!topic.regenerate) {
+    const pending = inFlightPracticeGenerations.get(cacheKey);
+
+    if (pending) {
+      const result = await pending;
+      return { questions: result.questions, reused: true };
+    }
+
+    const work = (async () => {
+      const cached = await findReusablePracticeQuestions(topic.id, fingerprint, topic.requestedCount);
+
+      if (cached) {
+        return { questions: cached, reused: true };
+      }
+
+      const generated = await generateAndPersistPracticeQuestions(topic, fingerprint);
+      return { questions: generated, reused: false };
+    })();
+
+    inFlightPracticeGenerations.set(cacheKey, work);
+
+    try {
+      return await work;
+    } finally {
+      inFlightPracticeGenerations.delete(cacheKey);
+    }
+  }
+
+  const generated = await generateAndPersistPracticeQuestions(topic, fingerprint);
+  return { questions: generated, reused: false };
+}
+
+async function generateAndPersistPracticeQuestions(
+  topic: {
+    id: string;
+    name: string;
+    cards: Array<{
+      id: string;
+      title: string;
+      content: string;
+      codeExample: string | null;
+      sourceRef: string | null;
+      order: number;
+    }>;
+    requestedCount: number;
+  },
+  fingerprint: string,
+) {
   const generated = await generatePracticeQuestions({
     topicName: topic.name,
     cards: topic.cards,
     requestedCount: topic.requestedCount,
   });
+  const generationId = randomUUID();
 
   const createdIds = await prisma.$transaction(async (tx) => {
     await tx.topic.update({
@@ -167,12 +247,49 @@ async function ensurePracticeQuestions(topic: {
       data: { updatedAt: new Date() },
     });
 
-    return persistPracticeQuestions(tx, topic.id, generated);
+    return persistPracticeQuestions(tx, topic.id, topic.cards, generated, fingerprint, generationId);
   });
 
+  return loadPracticeQuestionsByIds(createdIds);
+}
+
+async function findReusablePracticeQuestions(topicId: string, fingerprint: string, requestedCount: number) {
+  const latest = await prisma.question.findFirst({
+    where: {
+      topicId,
+      type: QuestionType.MULTIPLE_CHOICE,
+      sourceFingerprint: fingerprint,
+      generationId: { not: null },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { generationId: true },
+  });
+
+  if (!latest?.generationId) {
+    return null;
+  }
+
+  const questions = await prisma.question.findMany({
+    where: {
+      topicId,
+      type: QuestionType.MULTIPLE_CHOICE,
+      generationId: latest.generationId,
+    },
+    orderBy: { order: 'asc' },
+    include: practiceQuestionInclude,
+  });
+
+  if (questions.length !== requestedCount) {
+    return null;
+  }
+
+  return questions;
+}
+
+async function loadPracticeQuestionsByIds(ids: string[]) {
   return prisma.question.findMany({
     where: {
-      id: { in: createdIds },
+      id: { in: ids },
       type: QuestionType.MULTIPLE_CHOICE,
     },
     orderBy: { order: 'asc' },
@@ -183,7 +300,10 @@ async function ensurePracticeQuestions(topic: {
 async function persistPracticeQuestions(
   tx: Prisma.TransactionClient,
   topicId: string,
+  cards: Array<{ id: string; order: number }>,
   questions: DraftPracticeQuestion[],
+  fingerprint: string,
+  generationId: string,
 ) {
   const latestQuestion = await tx.question.findFirst({
     where: { topicId },
@@ -193,6 +313,7 @@ async function persistPracticeQuestions(
 
   const startingOrder = (latestQuestion?.order ?? 0) + 1;
   const createdIds: string[] = [];
+  const cardIdByNumber = sourceCardIdByNumber(cards);
 
   for (const [index, question] of questions.entries()) {
     const created = await tx.question.create({
@@ -203,6 +324,9 @@ async function persistPracticeQuestions(
         difficulty: question.difficulty,
         explanation: question.explanation,
         order: startingOrder + index,
+        sourceFingerprint: fingerprint,
+        generationId,
+        sourceCardId: cardIdByNumber.get(question.sourceCardNumber) ?? null,
         options: {
           create: question.options.map((option, optionIndex) => ({
             text: option.text,
@@ -227,6 +351,7 @@ function toPublicPracticeQuestion(question: {
   difficulty: QuestionDifficulty;
   tags: Array<{ id: string; name: string; slug: string }>;
   options: Array<{ id: string; text: string; order: number }>;
+  sourceCard: { id: string; order: number; title: string } | null;
 }) {
   return {
     id: question.id,
@@ -234,6 +359,7 @@ function toPublicPracticeQuestion(question: {
     prompt: question.prompt,
     difficulty: question.difficulty,
     tags: question.tags,
+    sourceCard: toPublicSourceCard(question.sourceCard),
     options: question.options.map((option) => ({
       id: option.id,
       text: option.text,
@@ -296,6 +422,13 @@ export async function submitPracticeAttempt(
         include: {
           options: {
             orderBy: { order: 'asc' },
+          },
+          sourceCard: {
+            select: {
+              id: true,
+              order: true,
+              title: true,
+            },
           },
         },
       },
@@ -371,6 +504,7 @@ export async function submitPracticeAttempt(
       selectedOptionId,
       correctOptionId,
       explanation: question.explanation,
+      sourceCard: toPublicSourceCard(question.sourceCard),
     };
   });
 
@@ -435,6 +569,13 @@ async function getSavedPracticeSubmitPayload(submissionId: string, userId: strin
           question: {
             include: {
               options: true,
+              sourceCard: {
+                select: {
+                  id: true,
+                  order: true,
+                  title: true,
+                },
+              },
             },
           },
         },
@@ -469,6 +610,7 @@ async function getSavedPracticeSubmitPayload(submissionId: string, userId: strin
         selectedOptionId: answer.selectedOptionId,
         correctOptionId: correctOptions[0].id,
         explanation: answer.question.explanation,
+        sourceCard: toPublicSourceCard(answer.question.sourceCard),
       };
     }),
   };

@@ -60,6 +60,9 @@ describe('practice question generation', () => {
     assert.equal(questions[0]?.difficulty, QuestionDifficulty.BEGINNER);
     assert.equal(questions[0]?.options.filter((option) => option.isCorrect).length, 1);
     assert.equal(questions[0]?.options.length, 4);
+    assert.equal(questions[0]?.sourceCardNumber, 1);
+    assert.equal(questions[1]?.sourceCardNumber, 2);
+    assert.equal(questions[2]?.sourceCardNumber, 3);
   });
 
   it('accepts fenced JSON, lowercase difficulty, and string booleans', async () => {
@@ -181,5 +184,78 @@ describe('practice question generation', () => {
     });
 
     assert.equal(questions.length, 8);
+  });
+
+  it('binds questions to the cited card numbers', async () => {
+    const orderedCards = [
+      { title: 'Cleanup', content: 'Cleanup runs first.', codeExample: null, sourceRef: null, order: 4 },
+      { title: 'Closures', content: 'Effects capture values.', codeExample: null, sourceRef: null, order: 7 },
+      { title: 'Deps', content: 'List reactive values.', codeExample: null, sourceRef: null, order: 9 },
+    ];
+    const payload = {
+      questions: [
+        {
+          prompt: 'What do effects capture?',
+          difficulty: 'INTERMEDIATE',
+          explanation: 'Effects capture render values.',
+          sourceCard: 7,
+          options: [
+            { text: 'Render values', isCorrect: true },
+            { text: 'Nothing', isCorrect: false },
+            { text: 'Globals', isCorrect: false },
+            { text: 'Only props', isCorrect: false },
+          ],
+        },
+        {
+          prompt: 'When does cleanup run?',
+          difficulty: 'BEGINNER',
+          explanation: 'Cleanup runs first.',
+          sourceCard: 'Card 4',
+          options: [
+            { text: 'Before the next effect', isCorrect: true },
+            { text: 'Never', isCorrect: false },
+            { text: 'Only in tests', isCorrect: false },
+            { text: 'On first paint only', isCorrect: false },
+          ],
+        },
+        {
+          prompt: 'What belongs in the dependency array?',
+          difficulty: 'BEGINNER',
+          explanation: 'List every reactive value.',
+          sourceCard: 9,
+          options: [
+            { text: 'Every reactive value', isCorrect: true },
+            { text: 'Only functions', isCorrect: false },
+            { text: 'Only primitives', isCorrect: false },
+            { text: 'Nothing', isCorrect: false },
+          ],
+        },
+      ],
+    };
+    setAiProviderForTests(providerReturning(JSON.stringify(payload)));
+
+    const questions = await generatePracticeQuestions({
+      topicName: 'React Fundamentals',
+      cards: orderedCards,
+    });
+
+    assert.deepEqual(
+      questions.map((question) => question.sourceCardNumber),
+      [7, 4, 9],
+    );
+  });
+
+  it('repairs missing source cards onto unused numbered cards', async () => {
+    setAiProviderForTests(providerReturning(JSON.stringify(questionPayload(3))));
+
+    const questions = await generatePracticeQuestions({
+      topicName: 'React Fundamentals',
+      cards,
+    });
+
+    assert.deepEqual(
+      questions.map((question) => question.sourceCardNumber).sort((left, right) => left - right),
+      [1, 2, 3],
+    );
   });
 });

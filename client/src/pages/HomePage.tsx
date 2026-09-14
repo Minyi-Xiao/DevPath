@@ -85,22 +85,19 @@ function ContinueLearning({
       <ul className="grid auto-rows-fr gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {latestAttempt ? (
           <li className="h-full">
-            <Card className="h-full">
-              <CardHeader className="flex h-full flex-col items-start gap-2 p-4">
-                <CardDescription>Last practice</CardDescription>
-                <CardTitle className="text-base">{latestAttempt.topic.name}</CardTitle>
-                <p className="text-2xl font-semibold tracking-tight">{latestAttempt.percentage}%</p>
-                <CardDescription>
-                  {latestAttempt.correctCount} / {latestAttempt.totalQuestions} correct ·{' '}
-                  {formatAttemptDate(latestAttempt.completedAt)}
-                </CardDescription>
-                <PracticeAgainDialog topicSlug={latestAttempt.topic.slug} attemptId={latestAttempt.id}>
-                  <Button type="button" className="mt-auto w-fit">
-                    Practice again
-                  </Button>
-                </PracticeAgainDialog>
-              </CardHeader>
-            </Card>
+            <Link to={`/attempts/${latestAttempt.id}`} className="block h-full">
+              <Card className="h-full transition-colors hover:bg-accent/40">
+                <CardHeader className="flex h-full flex-col gap-2 p-4">
+                  <CardDescription>Last practice</CardDescription>
+                  <CardTitle className="text-base">{latestAttempt.topic.name}</CardTitle>
+                  <p className="text-2xl font-semibold tracking-tight">{latestAttempt.percentage}%</p>
+                  <CardDescription className="mt-auto">
+                    {latestAttempt.correctCount} / {latestAttempt.totalQuestions} correct ·{' '}
+                    {formatAttemptDate(latestAttempt.completedAt)}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </Link>
           </li>
         ) : null}
 

@@ -37,6 +37,7 @@ const submitPracticeBodySchema = z.object({
 const startPracticeBodySchema = z.object({
   documentIds: z.array(z.string().trim().min(1)).max(50).optional(),
   count: z.number().int().min(DOCUMENT_MIN_PRACTICE_QUESTIONS).max(DOCUMENT_MAX_PRACTICE_QUESTIONS),
+  regenerate: z.boolean().optional(),
 });
 
 export async function startTopicPractice(req: Request, res: Response, next: NextFunction) {

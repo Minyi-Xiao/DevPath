@@ -11,6 +11,14 @@ import type { KnowledgeDocument } from '../types/document';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 
@@ -29,6 +37,7 @@ export function DocumentSaveSection({ document }: { document: KnowledgeDocument 
   const [topicDescription, setTopicDescription] = useState('');
   const [selectedTopicId, setSelectedTopicId] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   const topics = topicsQuery.data ?? [];
   const hasTopics = topics.length > 0;
@@ -91,17 +100,10 @@ export function DocumentSaveSection({ document }: { document: KnowledgeDocument 
       return;
     }
 
-    const confirmed = window.confirm(
-      'Discard this document? The uploaded file and generated knowledge will be removed.',
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     setValidationError(null);
     discardMutation.mutate(document.id, {
       onSuccess: () => {
+        setDiscardOpen(false);
         navigate('/new-knowledge');
       },
     });
@@ -251,12 +253,36 @@ export function DocumentSaveSection({ document }: { document: KnowledgeDocument 
             <Button type="button" disabled={isBusy} onClick={handleSave}>
               {saveMutation.isPending ? 'Saving...' : 'Save to Knowledge Base'}
             </Button>
-            <Button type="button" variant="outline" disabled={isBusy} onClick={handleDiscard}>
-              {discardMutation.isPending ? 'Discarding...' : 'Discard'}
+            <Button type="button" variant="outline" disabled={isBusy} onClick={() => setDiscardOpen(true)}>
+              Discard
             </Button>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={discardOpen} onOpenChange={(open) => !discardMutation.isPending && setDiscardOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard this document?</DialogTitle>
+            <DialogDescription>
+              The uploaded file and generated knowledge will be removed. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={discardMutation.isPending}
+              onClick={() => setDiscardOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" disabled={discardMutation.isPending} onClick={handleDiscard}>
+              {discardMutation.isPending ? 'Discarding...' : 'Discard'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

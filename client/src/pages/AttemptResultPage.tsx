@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { getAttemptErrorMessage } from '../api/attempts';
 import { usePageBackTo } from '../components/PageBack';
 import { PracticeAgainDialog } from '../components/PracticeAgainDialog';
+import { PracticeSourceCardLabel } from '../components/PracticeSourceCardLabel';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -64,6 +65,7 @@ export function AttemptResultPage() {
                     <CardTitle className="text-lg">
                       {index + 1}. {item.prompt}
                     </CardTitle>
+                    <PracticeSourceCardLabel sourceCard={item.sourceCard} />
                   </CardHeader>
                   <CardContent className="grid gap-2 text-sm">
                     <p>

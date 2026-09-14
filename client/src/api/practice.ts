@@ -19,7 +19,7 @@ export async function fetchTopicPractice(topicSlug: string): Promise<TopicPracti
 
 export async function startTopicPractice(
   topicSlug: string,
-  input: { documentIds?: string[]; count: number },
+  input: { documentIds?: string[]; count: number; regenerate?: boolean },
 ): Promise<TopicPracticeResponse> {
   const { data } = await http.post(`/topics/${topicSlug}/practice`, input, {
     timeout: PRACTICE_PREPARE_TIMEOUT_MS,

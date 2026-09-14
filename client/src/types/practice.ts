@@ -16,18 +16,28 @@ export const practiceOptionSchema = z.object({
   order: z.number().int(),
 });
 
+export const practiceSourceCardSchema = z
+  .object({
+    id: z.string().min(1),
+    number: z.number().int(),
+    title: z.string().min(1),
+  })
+  .nullable();
+
 export const practiceQuestionSchema = z.object({
   id: z.string().min(1),
   type: questionTypeSchema,
   prompt: z.string().min(1),
   difficulty: questionDifficultySchema,
   tags: z.array(practiceTagSchema),
+  sourceCard: practiceSourceCardSchema,
   options: z.array(practiceOptionSchema),
 });
 
 export const topicPracticeResponseSchema = z.object({
   topic: topicSchema,
   questions: z.array(practiceQuestionSchema),
+  reused: z.boolean().optional(),
 });
 
 export const practiceScoreSchema = z.object({
@@ -42,6 +52,7 @@ export const practiceQuestionResultSchema = z.object({
   selectedOptionId: z.string().min(1),
   correctOptionId: z.string().min(1),
   explanation: z.string().min(1),
+  sourceCard: practiceSourceCardSchema,
 });
 
 export const practiceSubmitRequestSchema = z.object({
@@ -64,6 +75,7 @@ export const practiceSubmitResponseSchema = z.object({
 
 export type PracticeTag = z.infer<typeof practiceTagSchema>;
 export type PracticeOption = z.infer<typeof practiceOptionSchema>;
+export type PracticeSourceCard = z.infer<typeof practiceSourceCardSchema>;
 export type PracticeQuestion = z.infer<typeof practiceQuestionSchema>;
 export type TopicPracticeResponse = z.infer<typeof topicPracticeResponseSchema>;
 export type PracticeSubmitRequest = z.infer<typeof practiceSubmitRequestSchema>;

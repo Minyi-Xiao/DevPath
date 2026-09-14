@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { practiceScoreSchema } from './practice';
+import { practiceScoreSchema, practiceSourceCardSchema } from './practice';
 import { topicSchema } from './topic';
 
 export const attemptOptionSchema = z.object({
@@ -14,6 +14,7 @@ export const attemptAnswerResultSchema = z.object({
   correctOption: attemptOptionSchema,
   correct: z.boolean(),
   explanation: z.string().min(1),
+  sourceCard: practiceSourceCardSchema,
 });
 
 export const attemptResultResponseSchema = z.object({

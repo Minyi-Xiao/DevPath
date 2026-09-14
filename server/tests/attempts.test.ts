@@ -256,6 +256,7 @@ describe('retry practice from an attempt', () => {
     assert.equal(response.body.questions.length, 1);
     assert.equal(response.body.questions[0].id, fixture.answers[0].questionId);
     assert.equal(response.body.questions[0].prompt, 'Which option is correct?');
+    assert.equal(response.body.questions[0].sourceCard, null);
     assert.equal(
       response.body.questions[0].options.some((option: { isCorrect?: boolean }) => 'isCorrect' in option),
       false,

@@ -1,6 +1,7 @@
 import { AttemptStatus } from '@prisma/client';
 import { HttpError } from '../lib/httpError';
 import { prisma } from '../lib/prisma';
+import { toPublicSourceCard } from '../lib/practiceSourceCard';
 
 function toPublicTopic(topic: {
   id: string;
@@ -81,6 +82,13 @@ export async function getAttemptById(attemptId: string, userId: string) {
               options: {
                 orderBy: { order: 'asc' },
               },
+              sourceCard: {
+                select: {
+                  id: true,
+                  order: true,
+                  title: true,
+                },
+              },
             },
           },
           selectedOption: true,
@@ -125,6 +133,7 @@ export async function getAttemptById(attemptId: string, userId: string) {
         },
         correct: answer.isCorrect,
         explanation: answer.question.explanation,
+        sourceCard: toPublicSourceCard(answer.question.sourceCard),
       };
     }),
   };

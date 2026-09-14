@@ -147,4 +147,106 @@ describe('knowledge extraction through the AI provider', () => {
 
     assert.equal(result.cards.length, 24);
   });
+
+  it('keeps cards from other sections when one chunk fails', async () => {
+    const text = [
+      `SECTION_A\n\n${'alpha knowledge. '.repeat(500)}`,
+      `SECTION_B\n\n${'bravo knowledge. '.repeat(500)}`,
+      `SECTION_C\n\n${'charlie knowledge. '.repeat(500)}`,
+    ].join('\n\n');
+
+    setAiProviderForTests({
+      name: 'openai',
+      async complete(request) {
+        if (request.userPrompt.includes('SECTION_B')) {
+          const error = new Error('slow');
+          error.name = 'AbortError';
+          throw error;
+        }
+
+        const label = request.userPrompt.includes('SECTION_C') ? 'C' : 'A';
+        return {
+          text: JSON.stringify({
+            summary: `Summary ${label}`,
+            keyPoints: [`Point ${label}`],
+            suggestedTopicName: 'Developer Notes',
+            cards: [
+              { title: `Card ${label}1`, content: `Reusable knowledge ${label}1.`, codeExample: null, sourceRef: null },
+              { title: `Card ${label}2`, content: `Reusable knowledge ${label}2.`, codeExample: null, sourceRef: null },
+            ],
+          }),
+        };
+      },
+    });
+
+    const result = await analyzeDocumentKnowledge({
+      filename: 'notes.pdf',
+      text,
+      pageCount: 40,
+    });
+
+    assert.equal(result.cards.length, 4);
+    assert.deepEqual(
+      new Set(result.cards.map((card) => card.title)),
+      new Set(['Card A1', 'Card A2', 'Card C1', 'Card C2']),
+    );
+    assert.match(result.warning ?? '', /could not be analysed/);
+  });
+
+  it('fails the document when every chunk fails', async () => {
+    const text = [
+      `SECTION_A\n\n${'alpha knowledge. '.repeat(500)}`,
+      `SECTION_B\n\n${'bravo knowledge. '.repeat(500)}`,
+    ].join('\n\n');
+
+    setAiProviderForTests({
+      name: 'openai',
+      async complete() {
+        const error = new Error('slow');
+        error.name = 'AbortError';
+        throw error;
+      },
+    });
+
+    await assert.rejects(
+      () =>
+        analyzeDocumentKnowledge({
+          filename: 'notes.pdf',
+          text,
+          pageCount: 40,
+        }),
+      (error: unknown) => error instanceof HttpError && error.errorCode === DocumentErrorCode.ANALYSIS_TIMEOUT,
+    );
+  });
+
+  it('limits in-flight chunk extraction to two requests', async () => {
+    const text = [
+      `SECTION_A\n\n${'alpha knowledge. '.repeat(500)}`,
+      `SECTION_B\n\n${'bravo knowledge. '.repeat(500)}`,
+      `SECTION_C\n\n${'charlie knowledge. '.repeat(500)}`,
+    ].join('\n\n');
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    setAiProviderForTests({
+      name: 'openai',
+      async complete() {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        inFlight -= 1;
+        return { text: JSON.stringify(extractionPayload(3)) };
+      },
+    });
+
+    const result = await analyzeDocumentKnowledge({
+      filename: 'notes.pdf',
+      text,
+      pageCount: 40,
+    });
+
+    assert.ok(result.cards.length >= 3);
+    assert.equal(maxInFlight, 2);
+  });
 });

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { getTopicPracticePath } from '../src/lib/practicePaths';
 
 describe('getTopicPracticePath', () => {
-  it('returns the generate-new practice path by default', () => {
+  it('returns the practice path by default', () => {
     assert.equal(getTopicPracticePath('react'), '/knowledge-base/topics/react/practice');
   });
 
