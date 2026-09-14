@@ -1,3 +1,4 @@
+import { QuestionDifficulty, QuestionType } from '@prisma/client';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, describe, it } from 'node:test';
@@ -168,5 +169,110 @@ describe('practice history', () => {
     const [attempt] = response.body.attempts;
     assert.ok(attempt);
     assertHistoryItemShape(attempt);
+  });
+
+  it('scores a session against submitted questions, not leftover topic questions', async () => {
+    const owner = await registerAgent(uniqueEmail('session-score'));
+    assert.equal(owner.response.status, 200);
+
+    const fixture = await getPracticeFixture(owner.response.body.id);
+    const topic = await prisma.topic.findFirst({
+      where: { slug: fixture.topicSlug },
+      select: { id: true },
+    });
+
+    assert.ok(topic);
+
+    await prisma.question.create({
+      data: {
+        topicId: topic.id,
+        type: QuestionType.MULTIPLE_CHOICE,
+        prompt: 'Leftover question from an earlier session',
+        difficulty: QuestionDifficulty.BEGINNER,
+        explanation: 'This question was not part of the current session.',
+        order: 2,
+        options: {
+          create: [
+            { text: 'Correct leftover', isCorrect: true, order: 1 },
+            { text: 'Wrong leftover', isCorrect: false, order: 2 },
+          ],
+        },
+      },
+    });
+
+    const response = await owner.agent.post('/api/practice/submit').send({
+      topicSlug: fixture.topicSlug,
+      submissionId: randomUUID(),
+      answers: fixture.answers,
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.score, {
+      correct: 1,
+      total: 1,
+      percentage: 100,
+    });
+    assert.equal(response.body.results.length, 1);
+
+    const storedAttempt = await prisma.attempt.findUnique({
+      where: { id: response.body.attemptId },
+    });
+
+    assert.ok(storedAttempt);
+    assert.equal(storedAttempt.correctCount, 1);
+    assert.equal(storedAttempt.totalQuestions, 1);
+    assert.equal(storedAttempt.percentage, 100);
+  });
+});
+
+describe('retry practice from an attempt', () => {
+  it('rejects unauthenticated GET /api/attempts/:attemptId/practice', async () => {
+    const response = await request(app).get('/api/attempts/does-not-exist/practice');
+
+    assert.equal(response.status, 401);
+    assert.equal(response.body.message, 'Authentication required');
+  });
+
+  it('returns the same questions without correct answers and lets the owner retry them', async () => {
+    const owner = await registerAgent(uniqueEmail('retry-owner'));
+    const other = await registerAgent(uniqueEmail('retry-other'));
+    assert.equal(owner.response.status, 200);
+    assert.equal(other.response.status, 200);
+
+    const fixture = await getPracticeFixture(owner.response.body.id);
+    const attemptId = await submitPractice(owner.agent, fixture);
+
+    const otherRead = await other.agent.get(`/api/attempts/${attemptId}/practice`);
+    assert.equal(otherRead.status, 404);
+    assert.equal(otherRead.body.message, 'Attempt not found');
+
+    const missingRead = await owner.agent.get('/api/attempts/does-not-exist/practice');
+    assert.equal(missingRead.status, 404);
+    assert.equal(missingRead.body.message, 'Attempt not found');
+
+    const response = await owner.agent.get(`/api/attempts/${attemptId}/practice`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.topic.slug, fixture.topicSlug);
+    assert.equal(response.body.questions.length, 1);
+    assert.equal(response.body.questions[0].id, fixture.answers[0].questionId);
+    assert.equal(response.body.questions[0].prompt, 'Which option is correct?');
+    assert.equal(
+      response.body.questions[0].options.some((option: { isCorrect?: boolean }) => 'isCorrect' in option),
+      false,
+    );
+
+    const retrySubmit = await owner.agent.post('/api/practice/submit').send({
+      topicSlug: fixture.topicSlug,
+      submissionId: randomUUID(),
+      answers: fixture.answers,
+    });
+
+    assert.equal(retrySubmit.status, 200);
+    assert.notEqual(retrySubmit.body.attemptId, attemptId);
+    assert.deepEqual(retrySubmit.body.score, {
+      correct: 1,
+      total: 1,
+      percentage: 100,
+    });
   });
 });

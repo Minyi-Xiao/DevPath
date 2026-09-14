@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { HttpError } from '../lib/httpError';
 import { getRequestUser } from '../middleware/requireAuth';
 import { getAttemptById, listAttemptsForUser } from '../services/attemptService';
+import { getPracticeSessionFromAttempt } from '../services/practiceService';
 
 export async function listAttempts(req: Request, res: Response, next: NextFunction) {
   try {
@@ -29,6 +30,23 @@ export async function getAttempt(req: Request, res: Response, next: NextFunction
 
     const user = getRequestUser(req);
     const payload = await getAttemptById(parsedParams.data.attemptId, user.id);
+
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getAttemptPractice(req: Request, res: Response, next: NextFunction) {
+  try {
+    const parsedParams = attemptIdParamsSchema.safeParse(req.params);
+
+    if (!parsedParams.success) {
+      throw new HttpError(400, 'Invalid attempt id');
+    }
+
+    const user = getRequestUser(req);
+    const payload = await getPracticeSessionFromAttempt(parsedParams.data.attemptId, user.id);
 
     res.json(payload);
   } catch (error) {

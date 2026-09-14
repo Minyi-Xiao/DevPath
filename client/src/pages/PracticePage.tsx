@@ -1,6 +1,7 @@
 import { CircleAlert } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { getRetryPracticeErrorMessage } from '../api/attempts';
 import { getSubmitPracticeErrorMessage, getTopicPracticeErrorMessage } from '../api/practice';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -8,9 +9,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Skeleton } from '../components/ui/skeleton';
+import { useAttemptPractice } from '../hooks/useAttemptPractice';
 import { useKnowledgeBaseTopic } from '../hooks/useKnowledgeBaseTopic';
 import { useStartPractice } from '../hooks/useStartPractice';
 import { useSubmitPractice } from '../hooks/useSubmitPractice';
+import { getTopicPracticePath } from '../lib/practicePaths';
 import { cn } from '../lib/utils';
 import type { TopicPracticeResponse } from '../types/practice';
 
@@ -70,8 +73,11 @@ function displayDocumentName(filename: string) {
 
 export function PracticePage() {
   const { topicSlug } = useParams<{ topicSlug: string }>();
+  const [searchParams] = useSearchParams();
+  const fromAttemptId = searchParams.get('fromAttempt');
   const navigate = useNavigate();
   const topicQuery = useKnowledgeBaseTopic(topicSlug);
+  const retryQuery = useAttemptPractice(fromAttemptId ?? undefined);
   const startMutation = useStartPractice(topicSlug);
   const submitMutation = useSubmitPractice();
   const [session, setSession] = useState<TopicPracticeResponse | null>(null);
@@ -80,6 +86,7 @@ export function PracticePage() {
   const [questionIndex, setQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [incompleteError, setIncompleteError] = useState<string | null>(null);
+  const [retryMismatchError, setRetryMismatchError] = useState<string | null>(null);
   const submissionIdRef = useRef(createSubmissionId());
 
   const topic = topicQuery.data?.topic;
@@ -94,10 +101,29 @@ export function PracticePage() {
     setQuestionIndex(0);
     setAnswers({});
     setIncompleteError(null);
+    setRetryMismatchError(null);
     submissionIdRef.current = createSubmissionId();
     submitMutation.reset();
     startMutation.reset();
-  }, [topicSlug]);
+  }, [topicSlug, fromAttemptId]);
+
+  useEffect(() => {
+    if (!fromAttemptId || !retryQuery.data || !topicSlug) {
+      return;
+    }
+
+    if (retryQuery.data.topic.slug !== topicSlug) {
+      setRetryMismatchError('Those questions belong to a different topic.');
+      return;
+    }
+
+    setRetryMismatchError(null);
+    setSession(retryQuery.data);
+    setQuestionIndex(0);
+    setAnswers({});
+    setIncompleteError(null);
+    submissionIdRef.current = createSubmissionId();
+  }, [fromAttemptId, retryQuery.data, topicSlug]);
 
   const selectedCardCount = useMemo(() => {
     if (documents.length === 0 || effectiveDocumentIds.length === documents.length) {
@@ -131,6 +157,8 @@ export function PracticePage() {
     parsedCount >= MIN_PRACTICE_QUESTIONS &&
     parsedCount <= MAX_PRACTICE_QUESTIONS &&
     parsedCount <= selectedCardCount;
+  const isPreparing =
+    startMutation.isPending || (Boolean(fromAttemptId) && retryQuery.isPending && !session);
 
   function toggleDocument(documentId: string) {
     const current = selectedDocumentIds ?? documents.map((document) => document.id);
@@ -205,7 +233,7 @@ export function PracticePage() {
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 p-6">
-      {topicQuery.isPending ? (
+      {topicQuery.isPending && !session && !isPreparing ? (
         <div className="grid gap-3">
           <Skeleton className="h-8 w-56" />
           <Skeleton className="h-48 w-full" />
@@ -219,14 +247,34 @@ export function PracticePage() {
         </Alert>
       ) : null}
 
-      {topic && !session && !startMutation.isPending ? (
+      {fromAttemptId && !session && !isPreparing && (retryQuery.isError || retryMismatchError) ? (
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight">{topic?.name ?? 'Practice'}</h1>
+            <p className="text-muted-foreground">Those questions could not be loaded.</p>
+          </div>
+          <Alert variant="destructive">
+            <CircleAlert />
+            <AlertDescription>
+              {retryMismatchError ?? getRetryPracticeErrorMessage(retryQuery.error)}
+            </AlertDescription>
+          </Alert>
+          {topicSlug ? (
+            <Button asChild>
+              <Link to={getTopicPracticePath(topicSlug)}>Generate new questions</Link>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {topic && !session && !isPreparing && !fromAttemptId ? (
         <div className="space-y-6">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-tight">{topic.name}</h1>
             <p className="text-muted-foreground">Choose what to practice before questions are generated.</p>
           </div>
 
-          {documents.length > 1 ? (
+          {documents.length > 0 ? (
             <section className="space-y-3">
               <h2 className="text-sm font-medium">Source documents</h2>
               <ul className="grid gap-2">
@@ -303,11 +351,13 @@ export function PracticePage() {
         </div>
       ) : null}
 
-      {startMutation.isPending ? (
+      {isPreparing ? (
         <div className="grid gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">{topic?.name ?? 'Practice'}</h1>
           <p className="text-sm text-muted-foreground">
-            Generating practice questions from the knowledge cards you selected.
+            {fromAttemptId
+              ? 'Loading the same questions from this attempt.'
+              : 'Generating practice questions from the knowledge cards you selected.'}
           </p>
           <Skeleton className="h-48 w-full" />
         </div>

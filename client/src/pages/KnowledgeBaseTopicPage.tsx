@@ -11,6 +11,7 @@ import { Button } from '../components/ui/button';
 import { Skeleton } from '../components/ui/skeleton';
 import { useKnowledgeBaseTopic } from '../hooks/useKnowledgeBaseTopic';
 import { filterKnowledgeCards } from '../lib/filterKnowledgeCards';
+import { getTopicPracticePath } from '../lib/practicePaths';
 import type { KnowledgeBaseCard, KnowledgeBaseDocument } from '../types/knowledgeBase';
 
 function formatTopicCounts(documentCount: number, knowledgeCardCount: number) {
@@ -75,7 +76,7 @@ export function KnowledgeBaseTopicPage() {
             </div>
             {knowledgeCards.length > 0 ? (
               <Button asChild className="shrink-0">
-                <Link to={`/knowledge-base/topics/${topic.slug}/practice`}>Start Practice</Link>
+                <Link to={getTopicPracticePath(topic.slug)}>Start Practice</Link>
               </Button>
             ) : (
               <p className="shrink-0 text-sm text-muted-foreground">Add knowledge cards before starting practice.</p>

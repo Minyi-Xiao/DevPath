@@ -115,6 +115,27 @@ describe('knowledge extraction through the AI provider', () => {
     );
   });
 
+  it('keeps a long model summary brief', async () => {
+    const longSummary = `${'This cheat sheet covers Python syntax, data structures, and packaging. '.repeat(8).trim()}`;
+    setAiProviderForTests(
+      providerReturning(
+        JSON.stringify({
+          ...extractionPayload(6),
+          summary: longSummary,
+        }),
+      ),
+    );
+
+    const result = await analyzeDocumentKnowledge({
+      filename: 'notes.pdf',
+      text: 'Short technical notes about Python syntax and packaging.',
+      pageCount: 4,
+    });
+
+    assert.ok(result.summary.length <= 400);
+    assert.match(result.summary, /cheat sheet/);
+  });
+
   it('caps knowledge cards at 24', async () => {
     setAiProviderForTests(providerReturning(JSON.stringify(extractionPayload(30))));
 
