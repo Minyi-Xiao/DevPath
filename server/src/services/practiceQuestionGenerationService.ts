@@ -16,7 +16,17 @@ import {
   questionRangeForCards,
 } from '../lib/documentLimits';
 import { HttpError } from '../lib/httpError';
+import {
+  bindQuestionSourceCards,
+  coerceSourceCardNumber,
+  practiceCardNumber,
+} from '../lib/practiceSourceCard';
 import type { DraftKnowledgeCard } from './knowledgeExtractionService';
+
+export type PracticeSourceCard = DraftKnowledgeCard & {
+  id?: string;
+  order?: number | null;
+};
 
 export type DraftPracticeOption = {
   text: string;
@@ -28,13 +38,14 @@ export type DraftPracticeQuestion = {
   difficulty: QuestionDifficulty;
   explanation: string;
   options: DraftPracticeOption[];
+  sourceCardNumber: number;
 };
 
 type PracticeQuestionGenerator = (input: {
   topicName: string;
-  cards: DraftKnowledgeCard[];
+  cards: PracticeSourceCard[];
   requestedCount?: number;
-}) => Promise<DraftPracticeQuestion[]>;
+}) => Promise<Array<Omit<DraftPracticeQuestion, 'sourceCardNumber'> & { sourceCardNumber?: number }>>;
 
 const optionSchema = z.object({
   text: z.string().trim().min(1).max(400),
@@ -47,6 +58,7 @@ const draftQuestionSchema = z
     difficulty: z.enum(['BEGINNER', 'INTERMEDIATE', 'ADVANCED']),
     explanation: z.string().trim().min(1).max(1200),
     options: z.array(optionSchema).length(4),
+    sourceCard: z.coerce.number().int().optional(),
   })
   .refine((question) => question.options.filter((option) => option.isCorrect).length === 1);
 
@@ -62,11 +74,11 @@ export function setPracticeQuestionGeneratorForTests(generator: PracticeQuestion
 
 export async function generatePracticeQuestions(input: {
   topicName: string;
-  cards: DraftKnowledgeCard[];
+  cards: PracticeSourceCard[];
   requestedCount?: number;
 }): Promise<DraftPracticeQuestion[]> {
   if (generatorForTests) {
-    return normalizeQuestions(await generatorForTests(input), input.cards.length, input.requestedCount);
+    return normalizeQuestions(await generatorForTests(input), input.cards, input.requestedCount);
   }
 
   return generateWithConfiguredProvider(input);
@@ -74,7 +86,7 @@ export async function generatePracticeQuestions(input: {
 
 async function generateWithConfiguredProvider(input: {
   topicName: string;
-  cards: DraftKnowledgeCard[];
+  cards: PracticeSourceCard[];
   requestedCount?: number;
 }): Promise<DraftPracticeQuestion[]> {
   const provider = getConfiguredAiProvider();
@@ -98,7 +110,7 @@ async function generateWithConfiguredProvider(input: {
       ok: true,
     });
 
-    return normalizeQuestions(parseGeneration(completion.text), input.cards.length, input.requestedCount);
+    return normalizeQuestions(parseGeneration(completion.text), input.cards, input.requestedCount);
   } catch (error) {
     logAiCall({
       provider: provider.name,
@@ -118,11 +130,12 @@ async function generateWithConfiguredProvider(input: {
 }
 
 function buildPrompt(
-  input: { topicName: string; cards: DraftKnowledgeCard[] },
+  input: { topicName: string; cards: PracticeSourceCard[] },
   range: { min: number; max: number },
 ) {
   const cardLines = input.cards.map((card, index) => {
-    const parts = [`${index + 1}. ${card.title}`, card.content];
+    const number = practiceCardNumber(card, index);
+    const parts = [`Card ${number}. ${card.title}`, card.content];
 
     if (card.codeExample) {
       parts.push(`Code: ${card.codeExample}`);
@@ -135,16 +148,17 @@ function buildPrompt(
     `Topic: ${input.topicName}`,
     `Return only a JSON object: {"questions":[...]}. No markdown, no extra keys.`,
     `Generate exactly ${range.max} multiple-choice questions.`,
-    `Each question must have prompt, difficulty (BEGINNER|INTERMEDIATE|ADVANCED), explanation, and exactly 4 options.`,
+    `Each question must have prompt, difficulty (BEGINNER|INTERMEDIATE|ADVANCED), explanation, sourceCard, and exactly 4 options.`,
+    `sourceCard is the integer from the Card N label that the question tests. Prefer covering different cards.`,
     `Each option is { text, isCorrect }. Exactly one option may be true.`,
-    `Keep prompt and option text short. Test the knowledge in these cards. Do not invent APIs or facts that are not in the cards.`,
+    `Keep prompt and option text short. Test the knowledge in the cited card. Do not invent APIs or facts that are not in that card.`,
     `Ask about concepts a developer should recall, not trivia about page numbers.`,
     '',
     cardLines.join('\n\n'),
   ].join('\n');
 }
 
-function parseGeneration(content: string): DraftPracticeQuestion[] {
+function parseGeneration(content: string): Array<Omit<DraftPracticeQuestion, 'sourceCardNumber'> & { sourceCardNumber?: number }> {
   const parsedJson = parseJsonValue(content);
   const parsed = generationSchema.safeParse(normalizeGenerationPayload(parsedJson));
 
@@ -160,6 +174,7 @@ function parseGeneration(content: string): DraftPracticeQuestion[] {
     prompt: question.prompt,
     difficulty: question.difficulty,
     explanation: question.explanation,
+    sourceCardNumber: question.sourceCard,
     options: question.options.map((option) => ({
       text: option.text,
       isCorrect: option.isCorrect,
@@ -235,6 +250,9 @@ function coerceQuestion(value: unknown) {
     prompt: question.prompt,
     difficulty: coerceDifficulty(question.difficulty),
     explanation: question.explanation ?? question.rationale ?? question.reason,
+    sourceCard: coerceSourceCardNumber(
+      question.sourceCard ?? question.cardNumber ?? question.card ?? question.source_card,
+    ),
     options,
   };
 }
@@ -276,26 +294,28 @@ function coerceDifficulty(value: unknown) {
 }
 
 function normalizeQuestions(
-  questions: DraftPracticeQuestion[],
-  cardCount: number,
+  questions: Array<Omit<DraftPracticeQuestion, 'sourceCardNumber'> & { sourceCardNumber?: number }>,
+  cards: PracticeSourceCard[],
   requestedCount?: number,
 ): DraftPracticeQuestion[] {
   const unique = dedupeQuestions(questions).slice(0, DOCUMENT_MAX_PRACTICE_QUESTIONS);
-  const range = questionRangeForCards(cardCount, requestedCount);
+  const range = questionRangeForCards(cards.length, requestedCount);
 
   if (unique.length < range.min) {
     throw new HttpError(422, documentErrorMessages.TOO_FEW_QUESTIONS, DocumentErrorCode.TOO_FEW_QUESTIONS);
   }
 
-  return unique.slice(0, range.max).map((question) => ({
+  return bindQuestionSourceCards(unique.slice(0, range.max), cards).map((question) => ({
     ...question,
     options: shuffleOptions(question.options),
   }));
 }
 
-function dedupeQuestions(questions: DraftPracticeQuestion[]) {
+function dedupeQuestions(
+  questions: Array<Omit<DraftPracticeQuestion, 'sourceCardNumber'> & { sourceCardNumber?: number }>,
+) {
   const seen = new Set<string>();
-  const unique: DraftPracticeQuestion[] = [];
+  const unique: Array<Omit<DraftPracticeQuestion, 'sourceCardNumber'> & { sourceCardNumber?: number }> = [];
 
   for (const question of questions) {
     const key = question.prompt.toLowerCase().replace(/\s+/g, ' ').trim();

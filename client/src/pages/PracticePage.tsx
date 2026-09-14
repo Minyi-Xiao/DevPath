@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Skeleton } from '../components/ui/skeleton';
+import { PracticeSourceCardLabel } from '../components/PracticeSourceCardLabel';
 import { useAttemptPractice } from '../hooks/useAttemptPractice';
 import { useKnowledgeBaseTopic } from '../hooks/useKnowledgeBaseTopic';
 import { useStartPractice } from '../hooks/useStartPractice';
@@ -60,7 +61,9 @@ function getQuestionCountMessage(input: {
       : `These knowledge cards can support at most ${selectedCardCount} questions.`;
   }
 
-  return `We'll generate ${parsedCount} questions from ${selectedCardCount} knowledge cards.`;
+  return selectedCardCount === 1
+    ? `We'll start ${parsedCount} questions from 1 knowledge card. Existing questions for this selection are reused.`
+    : `We'll start ${parsedCount} questions from ${selectedCardCount} knowledge cards. Existing questions for this selection are reused.`;
 }
 
 function createSubmissionId() {
@@ -88,6 +91,7 @@ export function PracticePage() {
   const [incompleteError, setIncompleteError] = useState<string | null>(null);
   const [retryMismatchError, setRetryMismatchError] = useState<string | null>(null);
   const submissionIdRef = useRef(createSubmissionId());
+  const startedAtRef = useRef<string | null>(null);
 
   const topic = topicQuery.data?.topic;
   const knowledgeCards = topicQuery.data?.knowledgeCards ?? [];
@@ -103,6 +107,7 @@ export function PracticePage() {
     setIncompleteError(null);
     setRetryMismatchError(null);
     submissionIdRef.current = createSubmissionId();
+    startedAtRef.current = null;
     submitMutation.reset();
     startMutation.reset();
   }, [topicSlug, fromAttemptId]);
@@ -123,6 +128,7 @@ export function PracticePage() {
     setAnswers({});
     setIncompleteError(null);
     submissionIdRef.current = createSubmissionId();
+    startedAtRef.current = new Date().toISOString();
   }, [fromAttemptId, retryQuery.data, topicSlug]);
 
   const selectedCardCount = useMemo(() => {
@@ -168,7 +174,7 @@ export function PracticePage() {
     setSelectedDocumentIds(next);
   }
 
-  function handleStart() {
+  function handleStart(regenerate = false) {
     if (!topicSlug || startMutation.isPending || !canStart || parsedCount === null) {
       return;
     }
@@ -177,6 +183,7 @@ export function PracticePage() {
       {
         count: parsedCount,
         documentIds: effectiveDocumentIds.length === documents.length ? undefined : effectiveDocumentIds,
+        regenerate: regenerate || undefined,
       },
       {
         onSuccess: (payload) => {
@@ -185,6 +192,7 @@ export function PracticePage() {
           setAnswers({});
           setIncompleteError(null);
           submissionIdRef.current = createSubmissionId();
+          startedAtRef.current = new Date().toISOString();
         },
       },
     );
@@ -200,7 +208,7 @@ export function PracticePage() {
       return;
     }
 
-    if (!topicSlug || !allAnswered) {
+    if (!topicSlug || !session || !allAnswered) {
       setIncompleteError('Answer every question before submitting.');
       return;
     }
@@ -208,7 +216,9 @@ export function PracticePage() {
     submitMutation.mutate(
       {
         topicSlug,
+        generationId: session.generationId,
         submissionId: submissionIdRef.current,
+        startedAt: startedAtRef.current ?? undefined,
         answers: questions.map((question) => {
           const optionId = answers[question.id];
 
@@ -261,7 +271,7 @@ export function PracticePage() {
           </Alert>
           {topicSlug ? (
             <Button asChild>
-              <Link to={getTopicPracticePath(topicSlug)}>Generate new questions</Link>
+              <Link to={getTopicPracticePath(topicSlug)}>Start a new session</Link>
             </Button>
           ) : null}
         </div>
@@ -271,7 +281,7 @@ export function PracticePage() {
         <div className="space-y-6">
           <div className="space-y-2">
             <h1 className="text-2xl font-semibold tracking-tight">{topic.name}</h1>
-            <p className="text-muted-foreground">Choose what to practice before questions are generated.</p>
+            <p className="text-muted-foreground">Choose what to practice. Matching questions are reused; generate a new set only when you want fresh ones.</p>
           </div>
 
           {documents.length > 0 ? (
@@ -345,9 +355,19 @@ export function PracticePage() {
             </Alert>
           ) : null}
 
-          <Button type="button" disabled={!canStart} onClick={handleStart}>
-            Generate and start
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button type="button" disabled={!canStart || startMutation.isPending} onClick={() => handleStart()}>
+              Start practice
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canStart || startMutation.isPending}
+              onClick={() => handleStart(true)}
+            >
+              Generate new questions
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -357,7 +377,9 @@ export function PracticePage() {
           <p className="text-sm text-muted-foreground">
             {fromAttemptId
               ? 'Loading the same questions from this attempt.'
-              : 'Generating practice questions from the knowledge cards you selected.'}
+              : startMutation.variables?.regenerate
+                ? 'Generating new practice questions from the knowledge cards you selected.'
+                : 'Preparing your practice session. Existing questions are reused when this selection has not changed.'}
           </p>
           <Skeleton className="h-48 w-full" />
         </div>
@@ -381,6 +403,7 @@ export function PracticePage() {
                   <span>{currentQuestion.tags.map((tag) => tag.name).join(' · ')}</span>
                 ) : null}
               </p>
+              <PracticeSourceCardLabel sourceCard={currentQuestion.sourceCard} />
               <CardTitle className="text-lg">{currentQuestion.prompt}</CardTitle>
             </CardHeader>
             <CardContent>

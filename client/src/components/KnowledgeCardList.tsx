@@ -1,9 +1,12 @@
+import { knowledgeCardNumber } from '../lib/knowledgeCardNumber';
 import { LIST_PAGE_SIZE, usePagedItems } from '../hooks/usePagedItems';
 import { KnowledgeCardView } from './KnowledgeCardView';
 import { PaginationNav } from './PaginationNav';
 
 type KnowledgeCardListItem = {
   id?: string;
+  number?: number;
+  order?: number;
   title: string;
   content: string;
   codeExample: string | null;
@@ -15,7 +18,11 @@ function getCardKey(card: KnowledgeCardListItem, index: number) {
 }
 
 export function KnowledgeCardList({ cards }: { cards: KnowledgeCardListItem[] }) {
-  const { page, pageCount, items, setPage } = usePagedItems(cards);
+  const numberedCards = cards.map((card, index) => ({
+    ...card,
+    number: knowledgeCardNumber(card, index),
+  }));
+  const { page, pageCount, items, setPage } = usePagedItems(numberedCards);
 
   return (
     <>

@@ -30,7 +30,6 @@ const saveDocumentBodySchema = z.union([
 
 export async function uploadDocument(req: Request, res: Response, next: NextFunction) {
   try {
-    req.setTimeout(5 * 60 * 1000);
     const user = getRequestUser(req);
     const document = await uploadAndAnalyzeDocument(user.id, uploadedFile(req));
     res.status(201).json({ document });
@@ -67,7 +66,6 @@ export async function downloadDocument(req: Request, res: Response, next: NextFu
 
 export async function retryDocument(req: Request, res: Response, next: NextFunction) {
   try {
-    req.setTimeout(5 * 60 * 1000);
     const user = getRequestUser(req);
     const documentId = parseDocumentId(req);
     const document = await retryDocumentAnalysis(user.id, documentId);

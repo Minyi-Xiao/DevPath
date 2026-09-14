@@ -9,7 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/filename.test.ts"
+    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/documentChunking.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/practiceFingerprint.test.ts tests/practiceSourceCard.test.ts tests/practiceStartedAt.test.ts tests/filename.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -21,6 +21,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.5.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.3.0",
     "pdf-parse": "^1.1.1",

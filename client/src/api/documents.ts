@@ -19,14 +19,14 @@ export type SaveDocumentInput =
     };
 
 export const DOCUMENT_MAX_BYTES = 40 * 1024 * 1024;
-const DOCUMENT_ANALYSIS_TIMEOUT_MS = 5 * 60 * 1000;
+const DOCUMENT_UPLOAD_TIMEOUT_MS = 60 * 1000;
 
 export async function uploadDocument(file: File): Promise<KnowledgeDocument> {
   const formData = new FormData();
   formData.append('file', file);
 
   const { data } = await http.post('/documents', formData, {
-    timeout: DOCUMENT_ANALYSIS_TIMEOUT_MS,
+    timeout: DOCUMENT_UPLOAD_TIMEOUT_MS,
   });
 
   return documentResponseSchema.parse(data).document;
@@ -38,18 +38,13 @@ export async function fetchDocument(documentId: string): Promise<KnowledgeDocume
 }
 
 export async function retryDocumentAnalysis(documentId: string): Promise<KnowledgeDocument> {
-  const { data } = await http.post(`/documents/${documentId}/retry`, undefined, {
-    timeout: DOCUMENT_ANALYSIS_TIMEOUT_MS,
-  });
-
+  const { data } = await http.post(`/documents/${documentId}/retry`);
   return documentResponseSchema.parse(data).document;
 }
 
 export async function saveDocument(input: SaveDocumentInput): Promise<SaveDocumentResponse> {
   const { documentId, ...body } = input;
-  const { data } = await http.post(`/documents/${documentId}/save`, body, {
-    timeout: DOCUMENT_ANALYSIS_TIMEOUT_MS,
-  });
+  const { data } = await http.post(`/documents/${documentId}/save`, body);
   return saveDocumentResponseSchema.parse(data);
 }
 
@@ -104,11 +99,15 @@ export function validateDocumentFile(file: File) {
 export function getDocumentErrorMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
     if (error.code === 'ECONNABORTED') {
-      return 'Analysis took too long. Please try again.';
+      return 'That request took too long. Please try again.';
     }
 
     if (error.response?.status === 401) {
       return 'Please log in again to continue.';
+    }
+
+    if (error.response?.status === 429) {
+      return 'Too many document requests. Please wait and try again.';
     }
 
     if (error.response?.status === 404) {

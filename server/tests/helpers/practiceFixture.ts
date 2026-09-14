@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../src/lib/prisma';
 
 export async function createOwnedPracticeFixture(userId: string) {
+  const generationId = randomUUID();
   const topic = await prisma.topic.create({
     data: {
       userId,
@@ -16,6 +17,7 @@ export async function createOwnedPracticeFixture(userId: string) {
           difficulty: QuestionDifficulty.BEGINNER,
           explanation: 'The first option is correct.',
           order: 1,
+          generationId,
           options: {
             create: [
               { text: 'Correct', isCorrect: true, order: 1 },
@@ -47,6 +49,7 @@ export async function createOwnedPracticeFixture(userId: string) {
 
   return {
     topicSlug: topic.slug,
+    generationId,
     answers: [
       {
         questionId: question.id,

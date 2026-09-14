@@ -18,6 +18,7 @@ dotenv.config({
 });
 
 const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
   CLIENT_URL: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1),
@@ -25,10 +26,16 @@ const envSchema = z.object({
   AUTH_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24 * 7),
   AUTH_COOKIE_SECURE: z.enum(['true', 'false']).default('false'),
   AUTH_COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
+  RATE_LIMIT_ENABLED: z.enum(['true', 'false']).optional(),
   UPLOAD_DIR: z.string().min(1).default('uploads'),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().min(1).default('gpt-4o-mini'),
   OPENAI_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
 });
 
-export const env = envSchema.parse(process.env);
+const parsed = envSchema.parse(process.env);
+
+export const env = {
+  ...parsed,
+  UPLOAD_DIR: path.resolve(parsed.UPLOAD_DIR),
+};

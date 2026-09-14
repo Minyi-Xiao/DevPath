@@ -73,6 +73,10 @@ web_modules/
 # Uploaded learning documents
 uploads/
 
+# Generated Prisma clients
+.prisma-gen/
+.prisma-tmp-client/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

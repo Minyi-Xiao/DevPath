@@ -10,6 +10,7 @@ import { setKnowledgeAnalyzerForTests } from '../src/services/knowledgeExtractio
 import { setPracticeQuestionGeneratorForTests } from '../src/services/practiceQuestionGenerationService';
 import { DocumentErrorCode, documentErrorMessages } from '../src/lib/documentLimits';
 import { HttpError } from '../src/lib/httpError';
+import { recoverInterruptedDocumentAnalyses, waitForScheduledDocumentAnalysesForTests } from '../src/services/documentService';
 
 const app = createApp();
 const createdEmails: string[] = [];
@@ -26,6 +27,37 @@ async function registerAgent(email = uniqueEmail()) {
   const response = await agent.post('/api/auth/register').send({ email, password: 'password12' });
   assert.equal(response.status, 200);
   return { agent, email };
+}
+
+async function waitForDocumentAnalysis(
+  agent: ReturnType<typeof request.agent>,
+  documentId: string,
+) {
+  const deadline = Date.now() + 8000;
+
+  while (Date.now() < deadline) {
+    const response = await agent.get(`/api/documents/${documentId}`);
+
+    if (response.status === 200) {
+      const status = response.body.document.status as string;
+
+      if (status === 'REVIEW_PENDING' || status === 'FAILED' || status === 'SAVED') {
+        return response.body.document as { id: string; status: string; [key: string]: unknown };
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`Timed out waiting for document ${documentId} analysis`);
+}
+
+async function uploadUntilReady(agent: ReturnType<typeof request.agent>, filename = 'notes.pdf') {
+  const upload = await agent.post('/api/documents').attach('file', minimalPdf, filename);
+  assert.equal(upload.status, 201);
+  assert.equal(upload.body.document.status, 'EXTRACTING');
+  const document = await waitForDocumentAnalysis(agent, upload.body.document.id as string);
+  return { upload, document };
 }
 
 function mockPracticeQuestions() {
@@ -78,7 +110,8 @@ function mockSuccessfulAnalysis(title = 'useEffect cleanup') {
   mockPracticeQuestions();
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await waitForScheduledDocumentAnalysesForTests();
   setDocumentTextExtractorForTests(null);
   setKnowledgeAnalyzerForTests(null);
   setPracticeQuestionGeneratorForTests(null);
@@ -128,6 +161,14 @@ describe('document knowledge pipeline', () => {
     assert.equal(response.body.message, 'Only PDF files are supported.');
   });
 
+  it('rejects files that only look like PDFs by name', async () => {
+    const { agent } = await registerAgent();
+    const response = await agent.post('/api/documents').attach('file', Buffer.from('not a pdf'), 'notes.pdf');
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.errorCode, 'INVALID_TYPE');
+  });
+
   it('returns analysis failures on the document instead of a 500', async () => {
     const { agent } = await registerAgent();
 
@@ -152,9 +193,10 @@ describe('document knowledge pipeline', () => {
     const response = await agent.post('/api/documents').attach('file', minimalPdf, 'thin.pdf');
 
     assert.equal(response.status, 201);
-    assert.equal(response.body.document.status, 'FAILED');
-    assert.equal(response.body.document.errorCode, 'TOO_FEW_CARDS');
-    assert.match(response.body.document.errorMessage, /enough knowledge/);
+    const document = await waitForDocumentAnalysis(agent, response.body.document.id as string);
+    assert.equal(document.status, 'FAILED');
+    assert.equal(document.errorCode, 'TOO_FEW_CARDS');
+    assert.match(String(document.errorMessage), /enough knowledge/);
   });
 
   it('lets the owner review, save to a new topic, and hides the topic from other users', async () => {
@@ -163,13 +205,15 @@ describe('document knowledge pipeline', () => {
     mockSuccessfulAnalysis();
 
     const uploadResponse = await owner.agent.post('/api/documents').attach('file', minimalPdf, 'react-hooks.pdf');
+    const document = await waitForDocumentAnalysis(owner.agent, uploadResponse.body.document.id as string);
 
     assert.equal(uploadResponse.status, 201);
-    assert.equal(uploadResponse.body.document.status, 'REVIEW_PENDING');
-    assert.equal(uploadResponse.body.document.suggestedTopicName, 'React Fundamentals');
-    assert.equal(uploadResponse.body.document.cards.length, 3);
+    assert.equal(uploadResponse.body.document.status, 'EXTRACTING');
+    assert.equal(document.status, 'REVIEW_PENDING');
+    assert.equal(document.suggestedTopicName, 'React Fundamentals');
+    assert.equal((document.cards as unknown[]).length, 3);
 
-    const documentId = uploadResponse.body.document.id as string;
+    const documentId = document.id as string;
 
     const strangerRead = await stranger.agent.get(`/api/documents/${documentId}`);
     assert.equal(strangerRead.status, 404);
@@ -224,6 +268,7 @@ describe('document knowledge pipeline', () => {
 
     const uploadResponse = await agent.post('/api/documents').attach('file', minimalPdf, 'notes.pdf');
     const documentId = uploadResponse.body.document.id as string;
+    await waitForDocumentAnalysis(agent, documentId);
     const originalName = 'React，React 19 新特性 - Google 云端硬盘.pdf';
     const mojibake = Buffer.from(originalName, 'utf8').toString('latin1');
 
@@ -248,14 +293,16 @@ describe('document knowledge pipeline', () => {
     mockSuccessfulAnalysis('First batch');
 
     const firstUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'one.pdf');
-    const firstSave = await agent.post(`/api/documents/${firstUpload.body.document.id}/save`).send({
+    const firstDocument = await waitForDocumentAnalysis(agent, firstUpload.body.document.id as string);
+    const firstSave = await agent.post(`/api/documents/${firstDocument.id}/save`).send({
       newTopic: { name: 'Hooks' },
     });
     const topicId = firstSave.body.topic.id as string;
 
     mockSuccessfulAnalysis('Second batch');
     const secondUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'two.pdf');
-    const secondSave = await agent.post(`/api/documents/${secondUpload.body.document.id}/save`).send({ topicId });
+    const secondDocument = await waitForDocumentAnalysis(agent, secondUpload.body.document.id as string);
+    const secondSave = await agent.post(`/api/documents/${secondDocument.id}/save`).send({ topicId });
 
     assert.equal(secondSave.status, 200);
     assert.equal(secondSave.body.topic.id, topicId);
@@ -275,13 +322,15 @@ describe('document knowledge pipeline', () => {
     assert.equal(discardedRead.status, 404);
   });
 
-  it('rejects retry unless the document is uploaded or failed', async () => {
+  it('rejects retry unless the document is uploaded, failed, or a partial review', async () => {
     const { agent } = await registerAgent();
     mockSuccessfulAnalysis();
 
     const upload = await agent.post('/api/documents').attach('file', minimalPdf, 'notes.pdf');
     const documentId = upload.body.document.id as string;
-    assert.equal(upload.body.document.status, 'REVIEW_PENDING');
+    const ready = await waitForDocumentAnalysis(agent, documentId);
+    assert.equal(ready.status, 'REVIEW_PENDING');
+    assert.equal(ready.errorCode, null);
 
     for (const status of ['EXTRACTING', 'ANALYZING', 'REVIEW_PENDING', 'SAVED'] as const) {
       await prisma.document.update({
@@ -300,7 +349,55 @@ describe('document knowledge pipeline', () => {
 
     const retryFailed = await agent.post(`/api/documents/${documentId}/retry`);
     assert.equal(retryFailed.status, 200);
-    assert.equal(retryFailed.body.document.status, 'REVIEW_PENDING');
+    assert.equal(retryFailed.body.document.status, 'EXTRACTING');
+    const retried = await waitForDocumentAnalysis(agent, documentId);
+    assert.equal(retried.status, 'REVIEW_PENDING');
+  });
+
+  it('lets the owner retry a partial analysis without uploading again', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis('Partial card');
+    setKnowledgeAnalyzerForTests(async () => ({
+      summary: 'This document explains React effect cleanup and related hook behaviour.',
+      keyPoints: ['useEffect runs after paint', 'Cleanup runs before the next effect', 'Avoid stale closures'],
+      suggestedTopicName: 'React Fundamentals',
+      warning: 'Section 2 of 3 could not be analysed. Knowledge from the rest of the document is ready to review.',
+      cards: [
+        {
+          title: 'Partial card',
+          content: 'Cleanup functions run before the next effect and when the component unmounts.',
+          codeExample: 'useEffect(() => () => controller.abort(), []);',
+          sourceRef: 'p.3',
+        },
+        {
+          title: 'Stale closures',
+          content: 'Effects capture values from the render that created them.',
+          codeExample: null,
+          sourceRef: 'p.5',
+        },
+        {
+          title: 'Dependency arrays',
+          content: 'List every reactive value the effect reads.',
+          codeExample: null,
+          sourceRef: null,
+        },
+      ],
+    }));
+
+    const { document } = await uploadUntilReady(agent);
+    assert.equal(document.status, 'REVIEW_PENDING');
+    assert.equal(document.errorCode, DocumentErrorCode.PARTIAL_ANALYSIS);
+    assert.equal((document.cards as unknown[]).length, 3);
+
+    mockSuccessfulAnalysis('Retried card');
+    const retry = await agent.post(`/api/documents/${document.id}/retry`);
+    assert.equal(retry.status, 200);
+    assert.equal(retry.body.document.status, 'EXTRACTING');
+
+    const retried = await waitForDocumentAnalysis(agent, document.id as string);
+    assert.equal(retried.status, 'REVIEW_PENDING');
+    assert.equal(retried.errorCode, null);
+    assert.equal((retried.cards as Array<{ title: string }>)[0]?.title, 'Retried card');
   });
 
   it('saves two documents into the same topic without order conflicts', async () => {
@@ -308,7 +405,8 @@ describe('document knowledge pipeline', () => {
     mockSuccessfulAnalysis('Batch A');
 
     const firstUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'one.pdf');
-    const firstSave = await agent.post(`/api/documents/${firstUpload.body.document.id}/save`).send({
+    const firstDocument = await waitForDocumentAnalysis(agent, firstUpload.body.document.id as string);
+    const firstSave = await agent.post(`/api/documents/${firstDocument.id}/save`).send({
       newTopic: { name: 'Shared Topic' },
     });
     const topicId = firstSave.body.topic.id as string;
@@ -317,6 +415,8 @@ describe('document knowledge pipeline', () => {
     const secondUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'two.pdf');
     mockSuccessfulAnalysis('Batch C');
     const thirdUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'three.pdf');
+    const secondDocument = await waitForDocumentAnalysis(agent, secondUpload.body.document.id as string);
+    const thirdDocument = await waitForDocumentAnalysis(agent, thirdUpload.body.document.id as string);
 
     const [secondSave, thirdSave] = await Promise.all([
       agent.post(`/api/documents/${secondUpload.body.document.id}/save`).send({ topicId }),
@@ -340,11 +440,15 @@ describe('document knowledge pipeline', () => {
     mockSuccessfulAnalysis();
 
     const upload = await agent.post('/api/documents').attach('file', minimalPdf, 'hooks.pdf');
-    await agent.post(`/api/documents/${upload.body.document.id}/save`).send({
+    const uploaded = await waitForDocumentAnalysis(agent, upload.body.document.id as string);
+    await agent.post(`/api/documents/${uploaded.id}/save`).send({
       newTopic: { name: 'Concurrent Practice' },
     });
 
+    let generationCalls = 0;
+
     setPracticeQuestionGeneratorForTests(async () => {
+      generationCalls += 1;
       await new Promise((resolve) => setTimeout(resolve, 50));
       return [
         {
@@ -392,6 +496,11 @@ describe('document knowledge pipeline', () => {
     assert.equal(second.status, 200);
     assert.equal(first.body.questions.length, 3);
     assert.equal(second.body.questions.length, 3);
+    assert.deepEqual(
+      first.body.questions.map((question: { id: string }) => question.id),
+      second.body.questions.map((question: { id: string }) => question.id),
+    );
+    assert.equal(generationCalls, 1);
 
     const persisted = await prisma.question.count({
       where: {
@@ -401,7 +510,100 @@ describe('document knowledge pipeline', () => {
         },
       },
     });
-    assert.equal(persisted, 6);
+    assert.equal(persisted, 3);
+  });
+
+  it('reuses generated questions until the selection changes or regenerate is requested', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis('First batch');
+
+    const firstUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'one.pdf');
+    const firstDocument = await waitForDocumentAnalysis(agent, firstUpload.body.document.id as string);
+    const firstSave = await agent.post(`/api/documents/${firstDocument.id}/save`).send({
+      newTopic: { name: 'Reusable Practice' },
+    });
+    const topicId = firstSave.body.topic.id as string;
+    const firstDocumentId = firstDocument.id;
+
+    mockSuccessfulAnalysis('Second batch');
+    const secondUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'two.pdf');
+    const secondDocument = await waitForDocumentAnalysis(agent, secondUpload.body.document.id as string);
+    await agent.post(`/api/documents/${secondDocument.id}/save`).send({ topicId });
+
+    let generationCalls = 0;
+    setPracticeQuestionGeneratorForTests(async (input) => {
+      generationCalls += 1;
+      return Array.from({ length: input.requestedCount ?? input.cards.length }, (_, index) => ({
+        prompt: `Generated question ${generationCalls}-${index + 1}?`,
+        difficulty: 'BEGINNER' as const,
+        explanation: `Explanation ${generationCalls}-${index + 1}.`,
+        options: [
+          { text: `Correct ${generationCalls}-${index + 1}`, isCorrect: true },
+          { text: `Wrong A ${generationCalls}-${index + 1}`, isCorrect: false },
+          { text: `Wrong B ${generationCalls}-${index + 1}`, isCorrect: false },
+          { text: `Wrong C ${generationCalls}-${index + 1}`, isCorrect: false },
+        ],
+      }));
+    });
+
+    const first = await agent.post('/api/topics/reusable-practice/practice').send({
+      count: 3,
+      documentIds: [firstDocumentId],
+    });
+    const reused = await agent.post('/api/topics/reusable-practice/practice').send({
+      count: 3,
+      documentIds: [firstDocumentId],
+    });
+
+    assert.equal(first.status, 200);
+    assert.equal(reused.status, 200);
+    assert.equal(first.body.reused, false);
+    assert.equal(reused.body.reused, true);
+    assert.equal(typeof first.body.generationId, 'string');
+    assert.equal(first.body.generationId, reused.body.generationId);
+    assert.equal(first.body.questions[0].sourceCard.number, 1);
+    assert.equal(first.body.questions[0].sourceCard.title, 'First batch');
+    assert.deepEqual(
+      first.body.questions.map((question: { id: string }) => question.id),
+      reused.body.questions.map((question: { id: string }) => question.id),
+    );
+    assert.equal(generationCalls, 1);
+
+    const regenerated = await agent.post('/api/topics/reusable-practice/practice').send({
+      count: 3,
+      documentIds: [firstDocumentId],
+      regenerate: true,
+    });
+    assert.equal(regenerated.status, 200);
+    assert.equal(regenerated.body.reused, false);
+    assert.notEqual(regenerated.body.generationId, first.body.generationId);
+    assert.notEqual(regenerated.body.questions[0].id, first.body.questions[0].id);
+    assert.equal(generationCalls, 2);
+
+    const afterRegenerate = await agent.post('/api/topics/reusable-practice/practice').send({
+      count: 3,
+      documentIds: [firstDocumentId],
+    });
+    assert.equal(afterRegenerate.body.reused, true);
+    assert.deepEqual(
+      regenerated.body.questions.map((question: { id: string }) => question.id),
+      afterRegenerate.body.questions.map((question: { id: string }) => question.id),
+    );
+    assert.equal(generationCalls, 2);
+
+    const differentCount = await agent.post('/api/topics/reusable-practice/practice').send({
+      count: 2,
+      documentIds: [firstDocumentId],
+    });
+    assert.equal(differentCount.status, 200);
+    assert.equal(differentCount.body.reused, false);
+    assert.equal(differentCount.body.questions.length, 2);
+    assert.equal(generationCalls, 3);
+
+    const allDocuments = await agent.post('/api/topics/reusable-practice/practice').send({ count: 3 });
+    assert.equal(allDocuments.status, 200);
+    assert.equal(allDocuments.body.reused, false);
+    assert.equal(generationCalls, 4);
   });
 
   it('starts practice from selected documents and rejects unknown document ids', async () => {
@@ -409,15 +611,17 @@ describe('document knowledge pipeline', () => {
     mockSuccessfulAnalysis('First batch');
 
     const firstUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'one.pdf');
-    const firstSave = await agent.post(`/api/documents/${firstUpload.body.document.id}/save`).send({
+    const firstDocument = await waitForDocumentAnalysis(agent, firstUpload.body.document.id as string);
+    const firstSave = await agent.post(`/api/documents/${firstDocument.id}/save`).send({
       newTopic: { name: 'Scoped Practice' },
     });
     const topicId = firstSave.body.topic.id as string;
-    const firstDocumentId = firstUpload.body.document.id as string;
+    const firstDocumentId = firstDocument.id;
 
     mockSuccessfulAnalysis('Second batch');
     const secondUpload = await agent.post('/api/documents').attach('file', minimalPdf, 'two.pdf');
-    await agent.post(`/api/documents/${secondUpload.body.document.id}/save`).send({ topicId });
+    const secondDocument = await waitForDocumentAnalysis(agent, secondUpload.body.document.id as string);
+    await agent.post(`/api/documents/${secondDocument.id}/save`).send({ topicId });
 
     const unknown = await agent.post('/api/topics/scoped-practice/practice').send({
       count: 5,
@@ -468,12 +672,17 @@ describe('document knowledge pipeline', () => {
     });
 
     const first = await agent.post('/api/documents').attach('file', minimalPdf, 'joins.pdf');
-    assert.equal(first.body.document.status, 'FAILED');
+    assert.equal(first.status, 201);
+    assert.equal(first.body.document.status, 'EXTRACTING');
+    const failed = await waitForDocumentAnalysis(agent, first.body.document.id as string);
+    assert.equal(failed.status, 'FAILED');
 
     const retry = await agent.post(`/api/documents/${first.body.document.id}/retry`);
     assert.equal(retry.status, 200);
-    assert.equal(retry.body.document.status, 'REVIEW_PENDING');
-    assert.equal(retry.body.document.suggestedTopicName, 'SQL Joins');
+    assert.equal(retry.body.document.status, 'EXTRACTING');
+    const retried = await waitForDocumentAnalysis(agent, first.body.document.id as string);
+    assert.equal(retried.status, 'REVIEW_PENDING');
+    assert.equal(retried.suggestedTopicName, 'SQL Joins');
     assert.equal(attempts, 2);
   });
 
@@ -484,6 +693,7 @@ describe('document knowledge pipeline', () => {
 
     const uploadResponse = await owner.agent.post('/api/documents').attach('file', minimalPdf, 'react-hooks.pdf');
     const documentId = uploadResponse.body.document.id as string;
+    await waitForDocumentAnalysis(owner.agent, documentId);
 
     await owner.agent.post(`/api/documents/${documentId}/save`).send({
       newTopic: { name: 'Download Topic' },
@@ -517,6 +727,7 @@ describe('document knowledge pipeline', () => {
 
     const uploadResponse = await agent.post('/api/documents').attach('file', minimalPdf, 'hooks.pdf');
     const documentId = uploadResponse.body.document.id as string;
+    await waitForDocumentAnalysis(agent, documentId);
     const saveResponse = await agent.post(`/api/documents/${documentId}/save`).send({
       newTopic: { name: 'React Fundamentals' },
     });
@@ -544,6 +755,7 @@ describe('document knowledge pipeline', () => {
 
     const uploadResponse = await owner.agent.post('/api/documents').attach('file', minimalPdf, 'react-hooks.pdf');
     const documentId = uploadResponse.body.document.id as string;
+    await waitForDocumentAnalysis(owner.agent, documentId);
     const saveResponse = await owner.agent.post(`/api/documents/${documentId}/save`).send({
       newTopic: { name: 'React Fundamentals', description: 'Hooks and effect cleanup.' },
     });
@@ -577,5 +789,106 @@ describe('document knowledge pipeline', () => {
     });
 
     assert.equal(strangerUpdate.status, 404);
+  });
+
+  it('returns the uploaded document before analysis finishes', async () => {
+    const { agent } = await registerAgent();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    setDocumentTextExtractorForTests(async () => ({
+      text: 'React hooks useEffect cleanup runs after render.',
+      pageCount: 8,
+    }));
+    setKnowledgeAnalyzerForTests(async () => {
+      await gate;
+      return {
+        summary: 'This document explains React effect cleanup and related hook behaviour.',
+        keyPoints: ['useEffect runs after paint', 'Cleanup runs before the next effect', 'Avoid stale closures'],
+        suggestedTopicName: 'React Fundamentals',
+        cards: [
+          {
+            title: 'useEffect cleanup',
+            content: 'Cleanup functions run before the next effect and when the component unmounts.',
+            codeExample: 'useEffect(() => () => controller.abort(), []);',
+            sourceRef: 'p.3',
+          },
+          {
+            title: 'Stale closures',
+            content: 'Effects capture values from the render that created them.',
+            codeExample: null,
+            sourceRef: 'p.5',
+          },
+          {
+            title: 'Dependency arrays',
+            content: 'List every reactive value the effect reads.',
+            codeExample: null,
+            sourceRef: null,
+          },
+        ],
+      };
+    });
+
+    let documentId = '';
+
+    try {
+      const startedAt = Date.now();
+      const upload = await agent.post('/api/documents').attach('file', minimalPdf, 'hooks.pdf');
+      const elapsedMs = Date.now() - startedAt;
+      documentId = upload.body.document.id as string;
+
+      assert.equal(upload.status, 201);
+      assert.equal(upload.body.document.status, 'EXTRACTING');
+      assert.ok(elapsedMs < 1500);
+
+      const peek = await agent.get(`/api/documents/${documentId}`);
+      assert.equal(peek.status, 200);
+      assert.ok(['EXTRACTING', 'ANALYZING'].includes(peek.body.document.status));
+      assert.ok(peek.body.document.progress);
+      assert.ok(['EXTRACTING', 'ANALYZING'].includes(peek.body.document.progress.stage));
+    } finally {
+      release();
+    }
+
+    const ready = await waitForDocumentAnalysis(agent, documentId);
+    assert.equal(ready.status, 'REVIEW_PENDING');
+    assert.equal(ready.progress, null);
+  });
+
+  it('marks in-flight analyses as failed after a process interruption', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis();
+
+    const { document } = await uploadUntilReady(agent, 'hooks.pdf');
+    assert.equal(document.status, 'REVIEW_PENDING');
+
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { status: 'EXTRACTING' },
+    });
+
+    await recoverInterruptedDocumentAnalyses({ staleAfterMs: 0 });
+
+    const recovered = await agent.get(`/api/documents/${document.id}`).expect(200);
+    assert.equal(recovered.body.document.status, 'FAILED');
+    assert.equal(recovered.body.document.errorCode, 'ANALYSIS_INTERRUPTED');
+  });
+
+  it('leaves a recently updated in-flight analysis running', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis();
+
+    const { document } = await uploadUntilReady(agent, 'hooks.pdf');
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { status: 'EXTRACTING' },
+    });
+
+    await recoverInterruptedDocumentAnalyses();
+
+    const stillRunning = await agent.get(`/api/documents/${document.id}`).expect(200);
+    assert.equal(stillRunning.body.document.status, 'EXTRACTING');
   });
 });

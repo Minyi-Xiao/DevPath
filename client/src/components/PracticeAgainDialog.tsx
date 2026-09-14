@@ -39,9 +39,9 @@ export function PracticeAgainDialog({ topicSlug, attemptId, children }: Practice
             to={getTopicPracticePath(topicSlug)}
             className="rounded-xl border bg-card px-4 py-4 text-left shadow transition-colors hover:bg-accent/40"
           >
-            <span className="block font-medium">Generate new questions</span>
+            <span className="block font-medium">Start a new session</span>
             <span className="mt-1 block text-sm text-muted-foreground">
-              Create a new set from your knowledge cards.
+              Choose documents and question count. Existing questions are reused unless you generate a new set.
             </span>
           </Link>
         </div>

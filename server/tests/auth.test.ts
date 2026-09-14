@@ -159,6 +159,7 @@ describe('attempt ownership', () => {
     const fixture = await getPracticeFixture(owner.response.body.id);
     const response = await request(app).post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
+      generationId: fixture.generationId,
       submissionId: randomUUID(),
       answers: fixture.answers,
     });
@@ -177,6 +178,7 @@ describe('attempt ownership', () => {
     const fixture = await getPracticeFixture(owner.response.body.id);
     const submitResponse = await owner.agent.post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
+      generationId: fixture.generationId,
       submissionId: randomUUID(),
       answers: fixture.answers,
     });

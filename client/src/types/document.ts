@@ -32,6 +32,13 @@ export const documentSchema = z.object({
   topicId: z.string().nullable(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
+  progress: z
+    .object({
+      stage: z.enum(['EXTRACTING', 'ANALYZING']),
+      chunkIndex: z.number().int().nullable(),
+      chunkTotal: z.number().int().nullable(),
+    })
+    .nullable(),
 });
 
 export const documentResponseSchema = z.object({
@@ -64,6 +71,10 @@ export type SaveDocumentResponse = z.infer<typeof saveDocumentResponseSchema>;
 
 export function isSuccessfulDocumentAnalysis(status: DocumentStatus) {
   return status === 'REVIEW_PENDING' || status === 'SAVED';
+}
+
+export function isDocumentAnalysisInProgress(status: DocumentStatus) {
+  return status === 'UPLOADED' || status === 'EXTRACTING' || status === 'ANALYZING';
 }
 
 export function isReviewDraft(status: DocumentStatus) {

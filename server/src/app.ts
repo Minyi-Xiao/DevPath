@@ -19,6 +19,10 @@ function isAllowedOrigin(origin: string | undefined) {
     return true;
   }
 
+  if (env.NODE_ENV === 'production') {
+    return false;
+  }
+
   try {
     const { hostname } = new URL(origin);
     return hostname === 'localhost' || hostname === '127.0.0.1';

@@ -35,7 +35,7 @@ type UploadedFile = {
   buffer: Buffer;
 };
 
-const retryableStatuses: DocumentStatus[] = [DocumentStatus.UPLOADED, DocumentStatus.FAILED];
+const inProgressStatuses: DocumentStatus[] = [DocumentStatus.EXTRACTING, DocumentStatus.ANALYZING];
 
 const discardableStatuses: DocumentStatus[] = [
   DocumentStatus.UPLOADED,
@@ -44,6 +44,28 @@ const discardableStatuses: DocumentStatus[] = [
   DocumentStatus.REVIEW_PENDING,
   DocumentStatus.FAILED,
 ];
+
+const analysisProgressSchema = z.object({
+  stage: z.enum(['EXTRACTING', 'ANALYZING']),
+  chunkIndex: z.number().int().nullable(),
+  chunkTotal: z.number().int().nullable(),
+});
+
+export type DocumentAnalysisProgress = z.infer<typeof analysisProgressSchema>;
+
+export const DOCUMENT_ANALYSIS_STALE_AFTER_MS = 10 * 60 * 1000;
+
+const analysisProgressByDocumentId = new Map<string, DocumentAnalysisProgress>();
+const runningAnalyses = new Map<string, Promise<void>>();
+
+type StoredDocument = {
+  id: string;
+  userId: string;
+  filename: string;
+  storagePath: string;
+  mimeType: string;
+  sizeBytes: number;
+};
 
 export async function uploadAndAnalyzeDocument(userId: string, file: UploadedFile | undefined) {
   assertPdfUpload(file);
@@ -68,7 +90,9 @@ export async function uploadAndAnalyzeDocument(userId: string, file: UploadedFil
       data: { storagePath },
     });
 
-    return analyzeOwnedDocument(document);
+    const claimed = await claimDocumentForAnalysis(document.id);
+    scheduleClaimedAnalysis(claimed);
+    return toDocumentResponse(claimed);
   } catch (error) {
     await deleteDocumentFile(storagePath);
     await prisma.document.delete({ where: { id: created.id } }).catch(() => undefined);
@@ -79,11 +103,40 @@ export async function uploadAndAnalyzeDocument(userId: string, file: UploadedFil
 export async function retryDocumentAnalysis(userId: string, documentId: string) {
   const document = await findOwnedDocument(userId, documentId);
 
-  if (!retryableStatuses.includes(document.status)) {
+  if (!canRetryDocumentAnalysis(document)) {
     throw new HttpError(409, 'This document cannot be analyzed again');
   }
 
-  return analyzeOwnedDocument(document);
+  const claimed = await claimDocumentForAnalysis(document.id);
+  scheduleClaimedAnalysis(claimed);
+  return toDocumentResponse(claimed);
+}
+
+export async function recoverInterruptedDocumentAnalyses(
+  input: { staleAfterMs?: number } = {},
+) {
+  const staleAfterMs = input.staleAfterMs ?? DOCUMENT_ANALYSIS_STALE_AFTER_MS;
+  const staleBefore = new Date(Date.now() - staleAfterMs);
+  const recovered = await prisma.document.updateMany({
+    where: {
+      status: { in: inProgressStatuses },
+      updatedAt: { lte: staleBefore },
+    },
+    data: {
+      status: DocumentStatus.FAILED,
+      errorCode: DocumentErrorCode.ANALYSIS_INTERRUPTED,
+      errorMessage: documentErrorMessages.ANALYSIS_INTERRUPTED,
+      analysisProgress: Prisma.DbNull,
+    },
+  });
+
+  if (recovered.count > 0) {
+    console.warn('[documents] recovered interrupted analyses', { count: recovered.count });
+  }
+}
+
+export async function waitForScheduledDocumentAnalysesForTests() {
+  await Promise.allSettled([...runningAnalyses.values()]);
 }
 
 export async function getOwnedDocument(userId: string, documentId: string) {
@@ -239,25 +292,42 @@ export function assertPdfUpload(file: UploadedFile | undefined): asserts file is
   if (!filename.endsWith('.pdf') || !mimeOk) {
     throw new HttpError(400, documentErrorMessages.INVALID_TYPE, DocumentErrorCode.INVALID_TYPE);
   }
+
+  if (!file.buffer.subarray(0, 4).toString('latin1').startsWith('%PDF')) {
+    throw new HttpError(400, documentErrorMessages.INVALID_TYPE, DocumentErrorCode.INVALID_TYPE);
+  }
 }
 
-async function analyzeOwnedDocument(document: {
-  id: string;
-  userId: string;
-  filename: string;
-  storagePath: string;
-  mimeType: string;
-  sizeBytes: number;
-}) {
+function canRetryDocumentAnalysis(document: { status: DocumentStatus; errorCode: string | null }) {
+  return (
+    document.status === DocumentStatus.UPLOADED ||
+    document.status === DocumentStatus.FAILED ||
+    (document.status === DocumentStatus.REVIEW_PENDING &&
+      document.errorCode === DocumentErrorCode.PARTIAL_ANALYSIS)
+  );
+}
+
+async function claimDocumentForAnalysis(documentId: string) {
   const claimed = await prisma.document.updateMany({
     where: {
-      id: document.id,
-      status: { in: retryableStatuses },
+      id: documentId,
+      OR: [
+        { status: { in: [DocumentStatus.UPLOADED, DocumentStatus.FAILED] } },
+        {
+          status: DocumentStatus.REVIEW_PENDING,
+          errorCode: DocumentErrorCode.PARTIAL_ANALYSIS,
+        },
+      ],
     },
     data: {
       status: DocumentStatus.EXTRACTING,
       errorCode: null,
       errorMessage: null,
+      analysisProgress: {
+        stage: 'EXTRACTING',
+        chunkIndex: null,
+        chunkTotal: null,
+      },
     },
   });
 
@@ -265,7 +335,49 @@ async function analyzeOwnedDocument(document: {
     throw new HttpError(409, 'This document cannot be analyzed again');
   }
 
+  setAnalysisProgress(documentId, {
+    stage: 'EXTRACTING',
+    chunkIndex: null,
+    chunkTotal: null,
+  });
+
+  return prisma.document.findUniqueOrThrow({
+    where: { id: documentId },
+  });
+}
+
+function scheduleClaimedAnalysis(document: StoredDocument) {
+  if (runningAnalyses.has(document.id)) {
+    return;
+  }
+
+  const job = new Promise<void>((resolve, reject) => {
+    setImmediate(() => {
+      runClaimedDocumentAnalysis(document).then(resolve, reject);
+    });
+  })
+    .catch((error) => {
+      console.error('[documents] background analysis failed', {
+        documentId: document.id,
+        error,
+      });
+    })
+    .finally(() => {
+      runningAnalyses.delete(document.id);
+      analysisProgressByDocumentId.delete(document.id);
+    });
+
+  runningAnalyses.set(document.id, job);
+}
+
+async function runClaimedDocumentAnalysis(document: StoredDocument) {
   try {
+    setAnalysisProgress(document.id, {
+      stage: 'EXTRACTING',
+      chunkIndex: null,
+      chunkTotal: null,
+    });
+
     const buffer = await readDocumentFile(document.storagePath);
     const extracted = await extractDocumentText(buffer, {
       filename: document.filename,
@@ -273,49 +385,112 @@ async function analyzeOwnedDocument(document: {
       sizeBytes: document.sizeBytes,
     });
 
-    await prisma.document.update({
-      where: { id: document.id },
+    if (!(await isDocumentAnalysisActive(document.id))) {
+      return;
+    }
+
+    await prisma.document.updateMany({
+      where: {
+        id: document.id,
+        status: { in: inProgressStatuses },
+      },
       data: {
         status: DocumentStatus.ANALYZING,
         pageCount: extracted.pageCount,
         extractedChars: extracted.text.length,
+        analysisProgress: {
+          stage: 'ANALYZING',
+          chunkIndex: null,
+          chunkTotal: null,
+        },
       },
     });
+
+    setAnalysisProgress(document.id, {
+      stage: 'ANALYZING',
+      chunkIndex: null,
+      chunkTotal: null,
+    });
+
+    if (!(await isDocumentAnalysisActive(document.id))) {
+      return;
+    }
 
     const analysis = await analyzeDocumentKnowledge({
       filename: document.filename,
       text: extracted.text,
       pageCount: extracted.pageCount,
+      onChunkStart: async (chunkIndex, chunkTotal) => {
+        setAnalysisProgress(document.id, {
+          stage: 'ANALYZING',
+          chunkIndex,
+          chunkTotal,
+        });
+      },
     });
 
-    const saved = await prisma.document.update({
-      where: { id: document.id },
+    await prisma.document.updateMany({
+      where: {
+        id: document.id,
+        status: { in: inProgressStatuses },
+      },
       data: {
         status: DocumentStatus.REVIEW_PENDING,
         summary: analysis.summary,
         keyPoints: analysis.keyPoints,
         draftCards: analysis.cards,
         suggestedTopicName: analysis.suggestedTopicName,
-        errorCode: null,
-        errorMessage: null,
+        errorCode: analysis.warning ? DocumentErrorCode.PARTIAL_ANALYSIS : null,
+        errorMessage: analysis.warning ?? null,
+        analysisProgress: Prisma.DbNull,
       },
     });
-
-    return toDocumentResponse(saved);
   } catch (error) {
     const { errorCode, errorMessage } = toDocumentFailure(error);
 
-    const failed = await prisma.document.update({
-      where: { id: document.id },
+    await prisma.document.updateMany({
+      where: {
+        id: document.id,
+        status: { in: inProgressStatuses },
+      },
       data: {
         status: DocumentStatus.FAILED,
         errorCode,
         errorMessage,
+        analysisProgress: Prisma.DbNull,
       },
     });
-
-    return toDocumentResponse(failed);
   }
+}
+
+async function isDocumentAnalysisActive(documentId: string) {
+  const document = await prisma.document.findUnique({
+    where: { id: documentId },
+    select: { status: true },
+  });
+
+  return Boolean(document && inProgressStatuses.includes(document.status));
+}
+
+function setAnalysisProgress(documentId: string, progress: DocumentAnalysisProgress) {
+  analysisProgressByDocumentId.set(documentId, progress);
+
+  void prisma.document
+    .updateMany({
+      where: {
+        id: documentId,
+        status: { in: inProgressStatuses },
+      },
+      data: {
+        analysisProgress: progress,
+      },
+    })
+    .catch((error) => {
+      console.error('[documents] failed to persist analysis progress', {
+        documentId,
+        error,
+      });
+    });
 }
 
 async function findOwnedDocument(userId: string, documentId: string) {
@@ -366,6 +541,7 @@ function toDocumentResponse(document: {
   keyPoints: Prisma.JsonValue;
   draftCards: Prisma.JsonValue;
   suggestedTopicName: string | null;
+  analysisProgress?: Prisma.JsonValue;
   topicId: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -385,7 +561,20 @@ function toDocumentResponse(document: {
     topicId: document.topicId,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    progress: inProgressStatuses.includes(document.status)
+      ? (analysisProgressByDocumentId.get(document.id) ??
+        parseAnalysisProgress(document.analysisProgress) ?? {
+          stage: document.status === DocumentStatus.ANALYZING ? 'ANALYZING' : 'EXTRACTING',
+          chunkIndex: null,
+          chunkTotal: null,
+        })
+      : null,
   };
+}
+
+function parseAnalysisProgress(value: Prisma.JsonValue | undefined) {
+  const parsed = analysisProgressSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function parseDraftCards(value: Prisma.JsonValue): DraftKnowledgeCard[] {

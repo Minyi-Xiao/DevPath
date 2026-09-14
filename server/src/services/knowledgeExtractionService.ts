@@ -5,6 +5,7 @@ import { env } from '../config/env';
 import { analysisTimeoutError, invalidAiOutputError, isAbortError, mapProviderError, providerErrorName } from '../ai/mapAiError';
 import type { AiProvider } from '../ai/types';
 import {
+  DOCUMENT_CHUNK_CONCURRENCY,
   DOCUMENT_HARD_CARD_CAP,
   DOCUMENT_MAX_KEY_POINTS,
   DOCUMENT_MIN_QUALITY_CARDS,
@@ -12,6 +13,7 @@ import {
   cardRangeForDocument,
   chunkExtractedText,
   documentErrorMessages,
+  partialAnalysisMessage,
 } from '../lib/documentLimits';
 import { HttpError } from '../lib/httpError';
 
@@ -27,6 +29,7 @@ export type KnowledgeExtractionResult = {
   keyPoints: string[];
   suggestedTopicName: string;
   cards: DraftKnowledgeCard[];
+  warning?: string | null;
 };
 
 type KnowledgeAnalyzer = (input: {
@@ -48,7 +51,7 @@ const extractionSchema = z.object({
   summary: z.string().trim().min(1).max(1200),
   keyPoints: z.array(z.string().trim().min(1).max(240)).min(1).max(DOCUMENT_MAX_KEY_POINTS),
   suggestedTopicName: z.string().trim().min(1).max(80).optional(),
-  cards: z.array(draftCardSchema).min(1).max(40),
+  cards: z.array(draftCardSchema).min(0).max(40),
 });
 
 let analyzerForTests: KnowledgeAnalyzer | null = null;
@@ -61,6 +64,7 @@ export async function analyzeDocumentKnowledge(input: {
   filename: string;
   text: string;
   pageCount: number;
+  onChunkStart?: (chunkIndex: number, chunkTotal: number) => void | Promise<void>;
 }): Promise<KnowledgeExtractionResult> {
   if (analyzerForTests) {
     return normalizeExtraction(await analyzerForTests(input), input.filename);
@@ -73,12 +77,18 @@ async function analyzeWithConfiguredProvider(input: {
   filename: string;
   text: string;
   pageCount: number;
+  onChunkStart?: (chunkIndex: number, chunkTotal: number) => void | Promise<void>;
 }): Promise<KnowledgeExtractionResult> {
   const provider = getConfiguredAiProvider();
   const range = cardRangeForDocument(input.pageCount, input.text.length);
   const chunks = chunkExtractedText(input.text);
 
+  if (chunks.length === 0) {
+    throw new HttpError(422, documentErrorMessages.TOO_FEW_CARDS, DocumentErrorCode.TOO_FEW_CARDS);
+  }
+
   if (chunks.length === 1) {
+    await input.onChunkStart?.(1, 1);
     return normalizeExtraction(
       await requestExtraction({
         provider,
@@ -97,23 +107,36 @@ async function analyzeWithConfiguredProvider(input: {
     DOCUMENT_HARD_CARD_CAP,
     Math.max(4, Math.ceil(range.max / chunks.length) + 2),
   );
-  const chunkResults: KnowledgeExtractionResult[] = [];
 
-  for (const [index, chunk] of chunks.entries()) {
-    chunkResults.push(
-      await requestExtraction({
+  const outcomes = await mapWithConcurrency(chunks, DOCUMENT_CHUNK_CONCURRENCY, async (chunk, index) => {
+    await input.onChunkStart?.(index + 1, chunks.length);
+
+    try {
+      const result = await requestExtraction({
         provider,
         filename: input.filename,
         pageCount: input.pageCount,
         text: chunk,
-        cardMin: 3,
+        cardMin: 1,
         cardMax: perChunkMax,
         chunkLabel: `${index + 1}/${chunks.length}`,
-      }),
-    );
+      });
+
+      return { ok: true as const, index, result };
+    } catch (error) {
+      return { ok: false as const, index, error };
+    }
+  });
+
+  const successfulResults = outcomes.flatMap((outcome) => (outcome.ok ? [outcome.result] : []));
+  const failedSections = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.index + 1]));
+
+  if (successfulResults.length === 0) {
+    const firstFailure = outcomes.find((outcome) => !outcome.ok);
+    throw firstFailure && !firstFailure.ok ? firstFailure.error : invalidAiOutputError();
   }
 
-  return mergeChunkResults(chunkResults, input.filename);
+  return mergeChunkResults(successfulResults, input.filename, failedSections, chunks.length);
 }
 
 async function requestExtraction(input: {
@@ -206,6 +229,7 @@ function parseExtraction(content: string): KnowledgeExtractionResult {
     keyPoints: parsed.data.keyPoints.slice(0, DOCUMENT_MAX_KEY_POINTS),
     suggestedTopicName: parsed.data.suggestedTopicName ?? '',
     cards: parsed.data.cards.map(toDraftCard),
+    warning: null,
   };
 }
 
@@ -244,19 +268,51 @@ function normalizeExtraction(result: KnowledgeExtractionResult, filename: string
     keyPoints: uniqueStrings(result.keyPoints).slice(0, DOCUMENT_MAX_KEY_POINTS),
     suggestedTopicName: result.suggestedTopicName.trim() || topicNameFromFilename(filename),
     cards,
+    warning: result.warning?.trim() ? result.warning : null,
   };
 }
 
-function mergeChunkResults(results: KnowledgeExtractionResult[], filename: string): KnowledgeExtractionResult {
+function mergeChunkResults(
+  results: KnowledgeExtractionResult[],
+  filename: string,
+  failedSections: number[] = [],
+  totalSections = results.length,
+): KnowledgeExtractionResult {
   return normalizeExtraction(
     {
       summary: results[0]?.summary ?? '',
       keyPoints: results.flatMap((result) => result.keyPoints),
       suggestedTopicName: results[0]?.suggestedTopicName ?? '',
       cards: results.flatMap((result) => result.cards),
+      warning: failedSections.length > 0 ? partialAnalysisMessage(failedSections, totalSections) : null,
     },
     filename,
   );
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+
+      if (index >= items.length) {
+        return;
+      }
+
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
 }
 
 function shortenSummary(summary: string) {
