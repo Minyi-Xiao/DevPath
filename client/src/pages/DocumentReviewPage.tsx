@@ -1,4 +1,5 @@
 import { CircleAlert, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { getDocumentErrorMessage } from '../api/documents';
 import { DocumentSaveSection } from '../components/DocumentSaveSection';
@@ -16,9 +17,22 @@ export function DocumentReviewPage() {
   const { documentId } = useParams<{ documentId: string }>();
   const { data: document, error, isPending, isError } = useDocument(documentId);
   const retryMutation = useRetryDocument();
+  const [cardNumberOffset, setCardNumberOffset] = useState(0);
 
   const isAnalysing = Boolean(document && isDocumentAnalysisInProgress(document.status)) || retryMutation.isPending;
   const progressCopy = document ? getDocumentAnalysisProgressCopy(document) : null;
+  const hasDraftContent = Boolean(document && (document.cards.length > 0 || document.summary));
+  const showDraftContent = Boolean(
+    document && (isSuccessfulDocumentAnalysis(document.status) || (isAnalysing && hasDraftContent)),
+  );
+  const numberedCards = (document?.cards ?? []).map((card, index) => ({
+    ...card,
+    number: index + 1 + cardNumberOffset,
+  }));
+
+  useEffect(() => {
+    setCardNumberOffset(0);
+  }, [documentId]);
 
   function handleRetry() {
     if (!document || retryMutation.isPending) {
@@ -76,7 +90,7 @@ export function DocumentReviewPage() {
               <AlertDescription>{getDocumentErrorMessage(retryMutation.error)}</AlertDescription>
             </Alert>
           ) : null}
-          <Button type="button" className="w-fit" onClick={handleRetry}>
+          <Button type="button" className="w-fit" disabled={retryMutation.isPending} onClick={handleRetry}>
             Retry Analysis
           </Button>
         </div>
@@ -109,14 +123,17 @@ export function DocumentReviewPage() {
               <AlertDescription>{getDocumentErrorMessage(retryMutation.error)}</AlertDescription>
             </Alert>
           ) : null}
-          <Button type="button" className="w-fit" variant="outline" onClick={handleRetry}>
+          <Button type="button" className="w-fit" variant="outline" disabled={retryMutation.isPending} onClick={handleRetry}>
             Retry Analysis
           </Button>
         </div>
       ) : null}
 
-      {document && isSuccessfulDocumentAnalysis(document.status) ? (
+      {showDraftContent && document ? (
         <>
+          {isAnalysing ? (
+            <p className="text-sm text-muted-foreground">Previous results stay visible while analysis runs again.</p>
+          ) : null}
           <section className="grid gap-4">
             <h2 className="text-lg font-semibold">Summary</h2>
             <Card>
@@ -131,11 +148,17 @@ export function DocumentReviewPage() {
             {document.cards.length === 0 ? (
               <p className="text-sm text-muted-foreground">No knowledge cards are available for this document.</p>
             ) : (
-              <KnowledgeCardList key={document.id} cards={document.cards} />
+              <KnowledgeCardList key={`${document.id}-${cardNumberOffset}`} cards={numberedCards} />
             )}
           </section>
 
-          {isReviewDraft(document.status) ? <DocumentSaveSection document={document} /> : null}
+          {isReviewDraft(document.status) ? (
+            <DocumentSaveSection
+              key={document.id}
+              document={document}
+              onCardNumberOffsetChange={setCardNumberOffset}
+            />
+          ) : null}
           {document.status === 'SAVED' ? (
             <Alert>
               <AlertDescription>This document has already been saved to your Knowledge Base.</AlertDescription>

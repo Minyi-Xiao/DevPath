@@ -10,13 +10,6 @@ import { http } from './http';
 
 const PRACTICE_PREPARE_TIMEOUT_MS = 5 * 60 * 1000;
 
-export async function fetchTopicPractice(topicSlug: string): Promise<TopicPracticeResponse> {
-  const { data } = await http.get(`/topics/${topicSlug}/practice`, {
-    timeout: PRACTICE_PREPARE_TIMEOUT_MS,
-  });
-  return topicPracticeResponseSchema.parse(data);
-}
-
 export async function startTopicPractice(
   topicSlug: string,
   input: { documentIds?: string[]; count: number; regenerate?: boolean },
@@ -38,8 +31,16 @@ export function getTopicPracticeErrorMessage(error: unknown): string {
       return 'Practice questions took too long to generate. Please try again.';
     }
 
+    if (error.response?.status === 401) {
+      return 'Please log in to start practice.';
+    }
+
     if (error.response?.status === 404) {
       return 'Topic not found.';
+    }
+
+    if (error.response?.status === 429) {
+      return 'Too many practice requests. Please wait and try again.';
     }
 
     if (error.response?.status === 400) {
@@ -69,6 +70,10 @@ export function getSubmitPracticeErrorMessage(error: unknown): string {
 
     if (error.response?.status === 404) {
       return 'Topic not found.';
+    }
+
+    if (error.response?.status === 429) {
+      return 'Too many practice requests. Please wait and try again.';
     }
 
     if (error.response?.status === 400) {

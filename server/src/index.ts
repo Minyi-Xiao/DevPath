@@ -11,6 +11,7 @@ void recoverInterruptedDocumentAnalyses()
   .finally(() => {
     app.listen(env.PORT, () => {
       console.log(`DevPath API listening on http://localhost:${env.PORT}`);
+      console.log('[storage]', { uploadDir: env.UPLOAD_DIR });
       console.log('[ai]', {
         provider: 'openai',
         modelId: env.OPENAI_MODEL,

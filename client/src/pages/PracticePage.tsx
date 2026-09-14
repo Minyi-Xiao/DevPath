@@ -91,6 +91,7 @@ export function PracticePage() {
   const [incompleteError, setIncompleteError] = useState<string | null>(null);
   const [retryMismatchError, setRetryMismatchError] = useState<string | null>(null);
   const submissionIdRef = useRef(createSubmissionId());
+  const startedAtRef = useRef<string | null>(null);
 
   const topic = topicQuery.data?.topic;
   const knowledgeCards = topicQuery.data?.knowledgeCards ?? [];
@@ -106,6 +107,7 @@ export function PracticePage() {
     setIncompleteError(null);
     setRetryMismatchError(null);
     submissionIdRef.current = createSubmissionId();
+    startedAtRef.current = null;
     submitMutation.reset();
     startMutation.reset();
   }, [topicSlug, fromAttemptId]);
@@ -126,6 +128,7 @@ export function PracticePage() {
     setAnswers({});
     setIncompleteError(null);
     submissionIdRef.current = createSubmissionId();
+    startedAtRef.current = new Date().toISOString();
   }, [fromAttemptId, retryQuery.data, topicSlug]);
 
   const selectedCardCount = useMemo(() => {
@@ -189,6 +192,7 @@ export function PracticePage() {
           setAnswers({});
           setIncompleteError(null);
           submissionIdRef.current = createSubmissionId();
+          startedAtRef.current = new Date().toISOString();
         },
       },
     );
@@ -204,7 +208,7 @@ export function PracticePage() {
       return;
     }
 
-    if (!topicSlug || !allAnswered) {
+    if (!topicSlug || !session || !allAnswered) {
       setIncompleteError('Answer every question before submitting.');
       return;
     }
@@ -212,7 +216,9 @@ export function PracticePage() {
     submitMutation.mutate(
       {
         topicSlug,
+        generationId: session.generationId,
         submissionId: submissionIdRef.current,
+        startedAt: startedAtRef.current ?? undefined,
         answers: questions.map((question) => {
           const optionId = answers[question.id];
 
@@ -350,10 +356,15 @@ export function PracticePage() {
           ) : null}
 
           <div className="flex flex-wrap gap-3">
-            <Button type="button" disabled={!canStart} onClick={() => handleStart()}>
+            <Button type="button" disabled={!canStart || startMutation.isPending} onClick={() => handleStart()}>
               Start practice
             </Button>
-            <Button type="button" variant="outline" disabled={!canStart} onClick={() => handleStart(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canStart || startMutation.isPending}
+              onClick={() => handleStart(true)}
+            >
               Generate new questions
             </Button>
           </div>

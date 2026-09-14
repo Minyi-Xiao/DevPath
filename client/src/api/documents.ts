@@ -106,6 +106,10 @@ export function getDocumentErrorMessage(error: unknown) {
       return 'Please log in again to continue.';
     }
 
+    if (error.response?.status === 429) {
+      return 'Too many document requests. Please wait and try again.';
+    }
+
     if (error.response?.status === 404) {
       return 'Document not found.';
     }

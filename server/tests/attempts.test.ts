@@ -30,6 +30,7 @@ async function getPracticeFixture(userId: string) {
 async function submitPractice(agent: ReturnType<typeof request.agent>, fixture: Awaited<ReturnType<typeof getPracticeFixture>>) {
   const response = await agent.post('/api/practice/submit').send({
     topicSlug: fixture.topicSlug,
+    generationId: fixture.generationId,
     submissionId: randomUUID(),
     answers: fixture.answers,
   });
@@ -202,6 +203,7 @@ describe('practice history', () => {
 
     const response = await owner.agent.post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
+      generationId: fixture.generationId,
       submissionId: randomUUID(),
       answers: fixture.answers,
     });
@@ -222,6 +224,63 @@ describe('practice history', () => {
     assert.equal(storedAttempt.correctCount, 1);
     assert.equal(storedAttempt.totalQuestions, 1);
     assert.equal(storedAttempt.percentage, 100);
+  });
+
+  it('rejects answers that do not match the started practice session', async () => {
+    const owner = await registerAgent(uniqueEmail('session-bind'));
+    assert.equal(owner.response.status, 200);
+
+    const fixture = await getPracticeFixture(owner.response.body.id);
+    const topic = await prisma.topic.findFirst({
+      where: { slug: fixture.topicSlug },
+      select: { id: true },
+    });
+
+    assert.ok(topic);
+
+    const leftover = await prisma.question.create({
+      data: {
+        topicId: topic.id,
+        type: QuestionType.MULTIPLE_CHOICE,
+        prompt: 'Historical easy question',
+        difficulty: QuestionDifficulty.BEGINNER,
+        explanation: 'Not part of the current generation.',
+        order: 2,
+        generationId: randomUUID(),
+        options: {
+          create: [
+            { text: 'Correct leftover', isCorrect: true, order: 1 },
+            { text: 'Wrong leftover', isCorrect: false, order: 2 },
+          ],
+        },
+      },
+      include: {
+        options: {
+          orderBy: { order: 'asc' },
+        },
+      },
+    });
+
+    const missingGeneration = await owner.agent.post('/api/practice/submit').send({
+      topicSlug: fixture.topicSlug,
+      submissionId: randomUUID(),
+      answers: fixture.answers,
+    });
+    assert.equal(missingGeneration.status, 400);
+
+    const cherryPick = await owner.agent.post('/api/practice/submit').send({
+      topicSlug: fixture.topicSlug,
+      generationId: fixture.generationId,
+      submissionId: randomUUID(),
+      answers: [
+        {
+          questionId: leftover.id,
+          optionId: leftover.options[0]?.id,
+        },
+      ],
+    });
+    assert.equal(cherryPick.status, 400);
+    assert.equal(cherryPick.body.message, 'Question does not belong to this practice session');
   });
 });
 
@@ -253,6 +312,7 @@ describe('retry practice from an attempt', () => {
     const response = await owner.agent.get(`/api/attempts/${attemptId}/practice`);
     assert.equal(response.status, 200);
     assert.equal(response.body.topic.slug, fixture.topicSlug);
+    assert.equal(typeof response.body.generationId, 'string');
     assert.equal(response.body.questions.length, 1);
     assert.equal(response.body.questions[0].id, fixture.answers[0].questionId);
     assert.equal(response.body.questions[0].prompt, 'Which option is correct?');
@@ -264,6 +324,7 @@ describe('retry practice from an attempt', () => {
 
     const retrySubmit = await owner.agent.post('/api/practice/submit').send({
       topicSlug: fixture.topicSlug,
+      generationId: response.body.generationId,
       submissionId: randomUUID(),
       answers: fixture.answers,
     });

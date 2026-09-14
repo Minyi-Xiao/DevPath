@@ -27,7 +27,13 @@ const selectClassName =
 
 type SaveMode = 'new' | 'existing';
 
-export function DocumentSaveSection({ document }: { document: KnowledgeDocument }) {
+export function DocumentSaveSection({
+  document,
+  onCardNumberOffsetChange,
+}: {
+  document: KnowledgeDocument;
+  onCardNumberOffsetChange?: (offset: number) => void;
+}) {
   const navigate = useNavigate();
   const saveMutation = useSaveDocument();
   const discardMutation = useDiscardDocument();
@@ -47,7 +53,21 @@ export function DocumentSaveSection({ document }: { document: KnowledgeDocument 
     if (!topicsQuery.isPending && !topicsQuery.isError && !hasTopics && mode === 'existing') {
       setMode('new');
     }
-  }, [hasTopics, mode, topicsQuery.isPending]);
+  }, [hasTopics, mode, topicsQuery.isError, topicsQuery.isPending]);
+
+  useEffect(() => {
+    if (!onCardNumberOffsetChange) {
+      return;
+    }
+
+    if (mode !== 'existing' || !selectedTopicId) {
+      onCardNumberOffsetChange(0);
+      return;
+    }
+
+    const selectedTopic = topics.find((topic) => topic.id === selectedTopicId);
+    onCardNumberOffsetChange(selectedTopic?.knowledgeCardCount ?? 0);
+  }, [mode, onCardNumberOffsetChange, selectedTopicId, topics]);
 
   function handleSave() {
     if (isBusy) {

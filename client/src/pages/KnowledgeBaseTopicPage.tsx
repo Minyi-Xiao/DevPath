@@ -1,5 +1,5 @@
 import { CircleAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getKnowledgeBaseTopicErrorMessage } from '../api/knowledgeBase';
 import { KnowledgeCardList } from '../components/KnowledgeCardList';
@@ -38,6 +38,12 @@ export function KnowledgeBaseTopicPage() {
   const topic = data?.topic;
   const knowledgeCards = data?.knowledgeCards ?? [];
   const documents = data?.documents ?? [];
+
+  useEffect(() => {
+    setDocumentId(null);
+    setHasCode(false);
+    setQuery('');
+  }, [slug]);
   const filteredCards = useMemo(
     () =>
       filterKnowledgeCards(knowledgeCards, { documentId, hasCode, query }).map((card) => ({

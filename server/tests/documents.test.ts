@@ -161,6 +161,14 @@ describe('document knowledge pipeline', () => {
     assert.equal(response.body.message, 'Only PDF files are supported.');
   });
 
+  it('rejects files that only look like PDFs by name', async () => {
+    const { agent } = await registerAgent();
+    const response = await agent.post('/api/documents').attach('file', Buffer.from('not a pdf'), 'notes.pdf');
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.errorCode, 'INVALID_TYPE');
+  });
+
   it('returns analysis failures on the document instead of a 500', async () => {
     const { agent } = await registerAgent();
 
@@ -551,6 +559,8 @@ describe('document knowledge pipeline', () => {
     assert.equal(reused.status, 200);
     assert.equal(first.body.reused, false);
     assert.equal(reused.body.reused, true);
+    assert.equal(typeof first.body.generationId, 'string');
+    assert.equal(first.body.generationId, reused.body.generationId);
     assert.equal(first.body.questions[0].sourceCard.number, 1);
     assert.equal(first.body.questions[0].sourceCard.title, 'First batch');
     assert.deepEqual(
@@ -566,6 +576,7 @@ describe('document knowledge pipeline', () => {
     });
     assert.equal(regenerated.status, 200);
     assert.equal(regenerated.body.reused, false);
+    assert.notEqual(regenerated.body.generationId, first.body.generationId);
     assert.notEqual(regenerated.body.questions[0].id, first.body.questions[0].id);
     assert.equal(generationCalls, 2);
 
@@ -858,10 +869,26 @@ describe('document knowledge pipeline', () => {
       data: { status: 'EXTRACTING' },
     });
 
-    await recoverInterruptedDocumentAnalyses();
+    await recoverInterruptedDocumentAnalyses({ staleAfterMs: 0 });
 
     const recovered = await agent.get(`/api/documents/${document.id}`).expect(200);
     assert.equal(recovered.body.document.status, 'FAILED');
     assert.equal(recovered.body.document.errorCode, 'ANALYSIS_INTERRUPTED');
+  });
+
+  it('leaves a recently updated in-flight analysis running', async () => {
+    const { agent } = await registerAgent();
+    mockSuccessfulAnalysis();
+
+    const { document } = await uploadUntilReady(agent, 'hooks.pdf');
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { status: 'EXTRACTING' },
+    });
+
+    await recoverInterruptedDocumentAnalyses();
+
+    const stillRunning = await agent.get(`/api/documents/${document.id}`).expect(200);
+    assert.equal(stillRunning.body.document.status, 'EXTRACTING');
   });
 });
