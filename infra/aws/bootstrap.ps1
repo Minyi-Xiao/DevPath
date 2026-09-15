@@ -92,14 +92,20 @@ function Get-Output([string]$key) {
 $publicIp = Get-Output PublicIp
 $ecrUri = Get-Output EcrUri
 $instanceId = Get-Output InstanceId
+$siteUrl = Get-Output CloudFrontUrl
+if (-not $siteUrl) {
+  $siteUrl = Get-Output SiteUrl
+}
 
 Write-Host ''
 Write-Host 'Stack is ready.'
 Write-Host "  Public IP : $publicIp"
 Write-Host "  Instance  : $instanceId"
 Write-Host "  ECR       : $ecrUri"
+Write-Host "  Site URL  : $siteUrl"
 Write-Host "  SSH       : ssh -i `"$pemPath`" ec2-user@$publicIp"
 Write-Host ''
+Write-Host 'CloudFront HTTPS can take several minutes the first time the distribution is created.'
 Write-Host 'Next:'
 Write-Host '  1. Copy infra/aws/env.example to infra/aws/.env and set OPENAI_API_KEY'
 Write-Host "  2. .\infra\aws\deploy.ps1 -KeyPath `"$pemPath`" -Region $Region"

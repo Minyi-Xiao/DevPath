@@ -15,6 +15,7 @@ import { useKnowledgeBaseTopic } from '../hooks/useKnowledgeBaseTopic';
 import { useStartPractice } from '../hooks/useStartPractice';
 import { useSubmitPractice } from '../hooks/useSubmitPractice';
 import { getTopicPracticePath } from '../lib/practicePaths';
+import { createSubmissionId } from '../lib/submissionId';
 import { cn } from '../lib/utils';
 import type { TopicPracticeResponse } from '../types/practice';
 
@@ -64,10 +65,6 @@ function getQuestionCountMessage(input: {
   return selectedCardCount === 1
     ? `We'll start ${parsedCount} questions from 1 knowledge card. Existing questions for this selection are reused.`
     : `We'll start ${parsedCount} questions from ${selectedCardCount} knowledge cards. Existing questions for this selection are reused.`;
-}
-
-function createSubmissionId() {
-  return crypto.randomUUID();
 }
 
 function displayDocumentName(filename: string) {
