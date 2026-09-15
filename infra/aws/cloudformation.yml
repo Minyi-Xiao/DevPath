@@ -169,6 +169,48 @@ Resources:
       AllocationId: !GetAtt ElasticIp.AllocationId
       InstanceId: !Ref Instance
 
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn: ElasticIpAssociation
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Ref ProjectName
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: PriceClass_All
+        Origins:
+          - Id: app
+            DomainName: !Sub
+              - ec2-${DashedIp}.${AWS::Region}.compute.amazonaws.com
+              - DashedIp: !Join
+                  - '-'
+                  - !Split ['.', !Ref ElasticIp]
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 5
+        DefaultCacheBehavior:
+          TargetOriginId: app
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+
 Outputs:
   PublicIp:
     Value: !Ref ElasticIp
@@ -176,7 +218,11 @@ Outputs:
     Value: !Ref Instance
   EcrUri:
     Value: !GetAtt EcrRepository.RepositoryUri
+  CloudFrontDomain:
+    Value: !GetAtt Distribution.DomainName
+  CloudFrontUrl:
+    Value: !Sub 'https://${Distribution.DomainName}'
   SiteUrl:
-    Value: !Sub 'http://${ElasticIp}'
+    Value: !Sub 'https://${Distribution.DomainName}'
   SshCommand:
     Value: !Sub 'ssh -i KEY.pem ec2-user@${ElasticIp}'

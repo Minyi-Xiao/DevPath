@@ -30,6 +30,7 @@ function Get-Output([string]$key) {
 $publicIp = Get-Output PublicIp
 $ecrUri = Get-Output EcrUri
 $instanceId = Get-Output InstanceId
+$cloudFrontUrl = Get-Output CloudFrontUrl
 if (-not $publicIp -or -not $ecrUri -or -not $instanceId) {
   throw "Stack '$StackName' is missing PublicIp, EcrUri, or InstanceId. Run bootstrap.ps1 first."
 }
@@ -71,13 +72,31 @@ if (-not $envMap['JWT_SECRET'] -or $envMap['JWT_SECRET'].Length -lt 32) {
 if (-not $envMap['POSTGRES_PASSWORD']) {
   $envMap['POSTGRES_PASSWORD'] = New-Secret 32
 }
-if (-not $envMap['CLIENT_URL'] -or $envMap['CLIENT_URL'] -match 'REPLACE_WITH_ELASTIC_IP') {
+
+function Test-GeneratedClientUrl([string]$value) {
+  return (-not $value) -or
+    ($value -match 'REPLACE_WITH_') -or
+    ($value -match '^https?://(\d{1,3}\.){3}\d{1,3}') -or
+    ($value -match '^https://[^/]+\.cloudfront\.net')
+}
+
+if ($cloudFrontUrl -and (Test-GeneratedClientUrl $envMap['CLIENT_URL'])) {
+  $envMap['CLIENT_URL'] = $cloudFrontUrl
+  $envMap['AUTH_COOKIE_SECURE'] = 'true'
+  if (-not $envMap['SITE_ADDRESS'] -or $envMap['SITE_ADDRESS'] -eq ':80' -or $envMap['SITE_ADDRESS'] -eq ':443') {
+    $envMap['SITE_ADDRESS'] = ':80'
+  }
+} elseif (-not $envMap['CLIENT_URL'] -or $envMap['CLIENT_URL'] -match 'REPLACE_WITH_') {
   $envMap['CLIENT_URL'] = "http://$publicIp"
 }
+
 if (-not $envMap['SITE_ADDRESS']) {
   $envMap['SITE_ADDRESS'] = ':80'
 }
-if (-not $envMap['AUTH_COOKIE_SECURE']) {
+
+if ($envMap['CLIENT_URL'] -match '^https://') {
+  $envMap['AUTH_COOKIE_SECURE'] = 'true'
+} elseif (-not $envMap['AUTH_COOKIE_SECURE']) {
   $envMap['AUTH_COOKIE_SECURE'] = 'false'
 }
 $envMap['ECR_IMAGE'] = "${ecrUri}:latest"
@@ -129,7 +148,7 @@ function Send-InstanceConnectKey {
   }
 }
 
-$ssh = @('-i', $icKey, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=20', "ec2-user@$publicIp")
+$ssh = @('-i', $icKey, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=20', "ec2-user@$publicIp")
 
 Write-Host 'Waiting for SSH via Instance Connect...'
 $ready = $false
@@ -168,15 +187,15 @@ if ($LASTEXITCODE -ne 0) {
 Send-InstanceConnectKey
 ssh @ssh 'sudo mkdir -p /opt/devpath/infra/aws /data/uploads /data/postgres /data/caddy && sudo chown -R ec2-user:ec2-user /opt/devpath /data/uploads'
 Send-InstanceConnectKey
-scp -i $icKey -o StrictHostKeyChecking=accept-new `
+scp -i $icKey -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new `
   (Join-Path $repoRoot 'docker-compose.aws.yml') `
   "ec2-user@${publicIp}:/opt/devpath/docker-compose.aws.yml"
 Send-InstanceConnectKey
-scp -i $icKey -o StrictHostKeyChecking=accept-new `
+scp -i $icKey -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new `
   (Join-Path $repoRoot 'infra\aws\Caddyfile') `
   "ec2-user@${publicIp}:/opt/devpath/infra/aws/Caddyfile"
 Send-InstanceConnectKey
-scp -i $icKey -o StrictHostKeyChecking=accept-new `
+scp -i $icKey -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new `
   $envPath `
   "ec2-user@${publicIp}:/opt/devpath/.env"
 
@@ -203,22 +222,44 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host 'Waiting for /api/health ...'
+$healthUrls = @(
+  "http://$publicIp/api/health"
+)
+if ($cloudFrontUrl) {
+  $healthUrls += "$cloudFrontUrl/api/health"
+}
+
 $healthy = $false
+$healthyUrl = $null
 foreach ($attempt in 1..30) {
-  try {
-    $response = Invoke-WebRequest -Uri "http://$publicIp/api/health" -UseBasicParsing -TimeoutSec 5
-    if ($response.StatusCode -eq 200) {
-      $healthy = $true
-      break
+  foreach ($healthUrl in $healthUrls) {
+    try {
+      $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 5
+      if ($response.StatusCode -eq 200) {
+        $healthy = $true
+        $healthyUrl = $healthUrl
+        break
+      }
+    } catch {
     }
-  } catch {
-    Start-Sleep -Seconds 4
   }
+  if ($healthy) {
+    break
+  }
+  Start-Sleep -Seconds 4
+}
+
+$publicUrl = $cloudFrontUrl
+if (-not $publicUrl) {
+  $publicUrl = "http://$publicIp"
 }
 
 Write-Host ''
 if ($healthy) {
-  Write-Host "DevPath is up: http://$publicIp"
+  Write-Host "DevPath is up: $publicUrl"
+  if ($healthyUrl -and $cloudFrontUrl -and $healthyUrl -notlike "$cloudFrontUrl*") {
+    Write-Warning "Origin health succeeded, but CloudFront may still be propagating. Use $publicUrl once HTTPS is ready."
+  }
 } else {
-  Write-Warning "Deploy finished but /api/health is not ready yet. Check instance i- logs with: aws ssm start-session --target $instanceId --region $Region"
+  Write-Warning "Deploy finished but /api/health is not ready yet. Check instance logs with: aws ssm start-session --target $instanceId --region $Region"
 }

@@ -97,7 +97,7 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 The production image serves the Vite build and the API from the same origin (`/api`). Auth cookies stay first-party (`SameSite=Lax`).
 
 - Set `NODE_ENV=production`
-- Set `CLIENT_URL` to the public site origin, or rely on `RENDER_EXTERNAL_URL` / `RAILWAY_PUBLIC_DOMAIN`. On AWS, `deploy.ps1` writes `CLIENT_URL` from the Elastic IP unless you set a domain.
+- Set `CLIENT_URL` to the public site origin, or rely on `RENDER_EXTERNAL_URL` / `RAILWAY_PUBLIC_DOMAIN`. On AWS, `deploy.ps1` writes `CLIENT_URL` from the CloudFront HTTPS URL unless you set a domain.
 - Set `AUTH_COOKIE_SECURE=true` on HTTPS (and `AUTH_COOKIE_SAMESITE=none` only if the API and UI are on different sites)
 - Run `npx prisma migrate deploy` against the production database (the Docker image does this on start)
 - Keep `UPLOAD_DIR` on persistent disk
@@ -116,7 +116,7 @@ App: http://localhost:8080 (port 8080 so it can run next to `npm run dev`)
 
 ### AWS (Docker + EC2)
 
-The production image is pushed to ECR and run on one EC2 host with Docker Compose (app + Postgres + Caddy). Estimated cost is about US$15–20/month for `t3.small` in `ap-southeast-2`. Docker Desktop must be running on this machine for the image build.
+The production image is pushed to ECR and run on one EC2 host with Docker Compose (app + Postgres + Caddy). CloudFront sits in front of that host and provides `https://xxxx.cloudfront.net` without buying a domain. Estimated cost is about US$15–20/month for `t3.small` in `ap-southeast-2`, plus a small CloudFront charge. Docker Desktop must be running on this machine for the image build.
 
 One-time AWS login:
 
@@ -124,7 +124,7 @@ One-time AWS login:
 aws configure
 ```
 
-Use an IAM user that can manage CloudFormation, EC2, ECR, and IAM (for a personal account, `AdministratorAccess` is the simplest). Default region: `ap-southeast-2`.
+Use an IAM user that can manage CloudFormation, EC2, ECR, CloudFront, and IAM (for a personal account, `AdministratorAccess` is the simplest). Default region: `ap-southeast-2`.
 
 Create the stack (key pair, ECR, EC2, Elastic IP):
 
@@ -145,9 +145,19 @@ SITE_ACCESS_PASSWORD=...
 .\infra\aws\deploy.ps1
 ```
 
-The script uses EC2 Instance Connect, so `-KeyPath` is optional. After a successful deploy, open `http://<elastic-ip>`. Visitors must enter `SITE_ACCESS_PASSWORD` before they can register or use the app. `/api/health` stays public.
+The script uses EC2 Instance Connect, so `-KeyPath` is optional. After a successful deploy, open the CloudFront URL printed by the script (`https://xxxx.cloudfront.net`), not the Elastic IP. Visitors must enter `SITE_ACCESS_PASSWORD` before they can register or use the app. `/api/health` stays public.
 
-To attach a domain later, point an A record at the Elastic IP and set in `infra/aws/.env`:
+If the stack already exists, rerun bootstrap to add CloudFront (first distribution create can take 5–15 minutes), then deploy:
+
+```powershell
+.\infra\aws\bootstrap.ps1 -KeyName devpath
+.\infra\aws\deploy.ps1
+```
+
+To attach a domain later, either:
+
+- Point an ALIAS/CNAME at the CloudFront domain and keep `SITE_ADDRESS=:80`
+- Or point an A record at the Elastic IP and let Caddy get a Let's Encrypt certificate:
 
 ```env
 CLIENT_URL=https://your.domain
@@ -155,7 +165,7 @@ SITE_ADDRESS=your.domain
 AUTH_COOKIE_SECURE=true
 ```
 
-Then rerun `deploy.ps1`. Caddy will request a Let's Encrypt certificate.
+Then rerun `deploy.ps1`.
 
 Tear the stack down when you do not need it (stops billing):
 
