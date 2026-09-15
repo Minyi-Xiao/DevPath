@@ -6,10 +6,11 @@
     "dev": "tsx watch --exclude \"../node_modules/**\" --exclude \"node_modules/**\" --exclude \"dist/**\" src/index.ts",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
+    "start:prod": "prisma migrate deploy && node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
-    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/documentChunking.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/practiceFingerprint.test.ts tests/practiceSourceCard.test.ts tests/practiceStartedAt.test.ts tests/filename.test.ts"
+    "test": "tsx --test tests/auth.test.ts tests/attempts.test.ts tests/documents.test.ts tests/aiProvider.test.ts tests/mapAiError.test.ts tests/knowledgeExtraction.test.ts tests/documentChunking.test.ts tests/pdfExtraction.test.ts tests/practiceQuestionGeneration.test.ts tests/practiceFingerprint.test.ts tests/practiceSourceCard.test.ts tests/practiceStartedAt.test.ts tests/filename.test.ts && tsx --test tests/siteGate.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

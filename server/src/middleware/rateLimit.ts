@@ -33,3 +33,14 @@ function createUserRateLimit(limit: number) {
 export const documentUploadRateLimit = createUserRateLimit(10);
 export const documentRetryRateLimit = createUserRateLimit(20);
 export const practiceStartRateLimit = createUserRateLimit(30);
+
+export const siteGateUnlockRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => !shouldRateLimit(),
+  handler: (_req, _res, next) => {
+    next(new HttpError(429, 'Too many site password attempts. Please wait and try again.'));
+  },
+});
