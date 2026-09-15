@@ -70,6 +70,16 @@ export function NewKnowledgePage() {
         navigate(`/new-knowledge/${document.id}/review`);
       },
       onError: (error) => {
+        // console.log("error");
+        // console.log(error);
+        console.log('upload error', {
+          name: error instanceof Error ? error.name : undefined,
+          message: error instanceof Error ? error.message : String(error),
+          code: (error as { code?: string })?.code,
+          timeout: (error as { config?: { timeout?: number } })?.config?.timeout,
+          status: (error as { response?: { status?: number } })?.response?.status,
+        });
+        console.log(error);
         setRequestError(getDocumentErrorMessage(error));
       },
     });

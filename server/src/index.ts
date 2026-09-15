@@ -9,8 +9,8 @@ void recoverInterruptedDocumentAnalyses()
     console.error('[documents] failed to recover interrupted analyses', error);
   })
   .finally(() => {
-    app.listen(env.PORT, () => {
-      console.log(`DevPath API listening on http://localhost:${env.PORT}`);
+    app.listen(env.PORT, '0.0.0.0', () => {
+      console.log(`DevPath listening on http://0.0.0.0:${env.PORT}`);
       console.log('[storage]', { uploadDir: env.UPLOAD_DIR });
       console.log('[ai]', {
         provider: 'openai',
